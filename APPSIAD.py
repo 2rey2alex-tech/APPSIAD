@@ -18,7 +18,7 @@ except ImportError:
 
 # Configuración de página de Streamlit
 st.set_page_config(
-    page_title="Alianza CryptoWallet v42",
+    page_title="Alianza CryptoWallet v43",
     page_icon="💼",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -1915,7 +1915,7 @@ st.markdown(f"""
 
 if not st.session_state.logged_in:
     st.sidebar.title("🔐 Alianza CryptoWallet")
-    st.sidebar.markdown("<div style='background-color: #1e293b; padding: 6px 12px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 15px; text-align: center;'><span style='color: #ffd700; font-size: 0.85rem; font-weight: bold;'>🚀 Versión de la App: v42</span></div>", unsafe_allow_html=True)
+    st.sidebar.markdown("<div style='background-color: #1e293b; padding: 6px 12px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 15px; text-align: center;'><span style='color: #ffd700; font-size: 0.85rem; font-weight: bold;'>🚀 Versión de la App: v43</span></div>", unsafe_allow_html=True)
     menu = st.sidebar.selectbox("Seleccione una opción", ["Iniciar Sesión", "Registrarse"])
     
     if menu == "Iniciar Sesión":
@@ -1981,7 +1981,7 @@ if not st.session_state.logged_in:
 else:
     # Sidebar de usuario conectado con toques dorados
     st.sidebar.markdown(f"<h2 class='golden-title'>👋 {st.session_state.fullname}</h2>", unsafe_allow_html=True)
-    st.sidebar.markdown("<div style='background-color: #1e293b; padding: 6px 12px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 15px; text-align: center;'><span style='color: #ffd700; font-size: 0.85rem; font-weight: bold;'>🚀 Versión de la App: v42</span></div>", unsafe_allow_html=True)
+    st.sidebar.markdown("<div style='background-color: #1e293b; padding: 6px 12px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 15px; text-align: center;'><span style='color: #ffd700; font-size: 0.85rem; font-weight: bold;'>🚀 Versión de la App: v43</span></div>", unsafe_allow_html=True)
     st.sidebar.markdown(f"**Billetera ID (Código):** `{st.session_state.wallet_code}`")
     
     # Obtener el número de notificaciones pendientes
@@ -3025,20 +3025,18 @@ else:
                 is_last = (idx == len(nodes) - 1)
                 connector = "└── " if is_last else "├── "
                 
-                # Diseño de fila compacta crucigrama
-                html += f"""
-                <div style="font-family: 'Segoe UI', Arial, sans-serif; color: #ffffff; font-size: 0.95rem; margin: 4px 0; padding-left: {25 * indent}px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px dotted #ffd7001a; padding-bottom: 6px;">
-                    <div style="display: flex; align-items: center; gap: 8px;">
-                        <span style="color: #ffd700; font-weight: bold; font-family: monospace;">{connector}</span>
-                        <span style="color: #10b981; font-weight: bold; font-size: 1.0rem;">👤 {node['fullname']}</span>
-                        <span style="color: #a1a1aa; font-size: 0.8rem;">(@{node['username']})</span>
-                        <span style="background-color: #0f172a; color: #10b981; font-size: 0.75rem; padding: 2px 6px; border-radius: 4px; border: 1px solid #10b98133; font-family: monospace;">ID: {node['wallet_code']}</span>
-                    </div>
-                    <div style="text-align: right;">
-                        <span style="color: #ffd700; font-weight: 850; font-size: 1.05rem;">+{format_num(node['earned'])} SD</span>
-                    </div>
-                </div>
-                """
+                # Diseño de fila compacta crucigrama (sin sangrías al inicio de línea para evitar modo código en Streamlit)
+                html += f"""<div style="font-family: 'Segoe UI', Arial, sans-serif; color: #ffffff; font-size: 0.95rem; margin: 4px 0; padding-left: {25 * indent}px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px dotted #ffd7001a; padding-bottom: 6px;">
+<div style="display: flex; align-items: center; gap: 8px;">
+<span style="color: #ffd700; font-weight: bold; font-family: monospace;">{connector}</span>
+<span style="color: #10b981; font-weight: bold; font-size: 1.0rem;">👤 {node['fullname']}</span>
+<span style="color: #a1a1aa; font-size: 0.8rem;">(@{node['username']})</span>
+<span style="background-color: #0f172a; color: #10b981; font-size: 0.75rem; padding: 2px 6px; border-radius: 4px; border: 1px solid #10b98133; font-family: monospace;">ID: {node['wallet_code']}</span>
+</div>
+<div style="text-align: right;">
+<span style="color: #ffd700; font-weight: 850; font-size: 1.05rem;">+{format_num(node['earned'])} SD</span>
+</div>
+</div>"""
                 if node['children']:
                     html += render_referral_tree_html(node['children'], indent + 1)
             return html
@@ -3048,20 +3046,18 @@ else:
         if len(my_tree) == 0:
             st.write("") # Si no tiene referidos, aparece completamente en blanco (sin mensajes molestos)
         else:
-            tree_html = f"""
-            <div style="border: 2px solid #ffd70033; padding: 18px; border-radius: 12px; background-color: #07070a; margin-bottom: 25px; box-shadow: 0 4px 15px rgba(255, 215, 0, 0.02);">
-                <div class="card" style="border-left: 4px solid #ffd700; background-color: #111116; margin-bottom: 15px; padding: 12px 15px; display: flex; justify-content: space-between; align-items: center;">
-                    <div>
-                        <span style="font-weight: bold; color: #ffd700; font-size: 1.1rem;">👑 Tú ({st.session_state.fullname})</span>
-                        <span style="color: #a1a1aa; font-size: 0.85rem; margin-left: 8px;">@{st.session_state.username}</span>
-                        <span style="color: #888899; font-size: 0.75rem; display: block; margin-top: 2px;">Cima de tu Red | Código: <code>{st.session_state.wallet_code}</code></span>
-                    </div>
-                    <div style="text-align: right;">
-                        <span style="color: #10b981; font-weight: 800; font-size: 1.2rem;">+{format_num(total_commissions_approved)} SD</span>
-                        <span style="color: #888899; font-size: 0.75rem; display: block;">Ganancias Cobradas</span>
-                    </div>
-                </div>
-            """
+            tree_html = f"""<div style="border: 2px solid #ffd70033; padding: 18px; border-radius: 12px; background-color: #07070a; margin-bottom: 25px; box-shadow: 0 4px 15px rgba(255, 215, 0, 0.02);">
+<div class="card" style="border-left: 4px solid #ffd700; background-color: #111116; margin-bottom: 15px; padding: 12px 15px; display: flex; justify-content: space-between; align-items: center;">
+<div>
+<span style="font-weight: bold; color: #ffd700; font-size: 1.1rem;">👑 Tú ({st.session_state.fullname})</span>
+<span style="color: #a1a1aa; font-size: 0.85rem; margin-left: 8px;">@{st.session_state.username}</span>
+<span style="color: #888899; font-size: 0.75rem; display: block; margin-top: 2px;">Cima de tu Red | Código: <code>{st.session_state.wallet_code}</code></span>
+</div>
+<div style="text-align: right;">
+<span style="color: #10b981; font-weight: 800; font-size: 1.2rem;">+{format_num(total_commissions_approved)} SD</span>
+<span style="color: #888899; font-size: 0.75rem; display: block;">Ganancias Cobradas</span>
+</div>
+</div>"""
             tree_html += render_referral_tree_html(my_tree)
             tree_html += "</div>"
             
