@@ -27,6 +27,18 @@ st.set_page_config(
 if st_autorefresh is not None:
     st_autorefresh(interval=10000, key="datarefresh") # Auto-refresh every 10 seconds
 
+# --- BANNER DE DIAGNÓSTICO DE ACTUALIZACIÓN ---
+st.markdown("""
+<div style="background-color: #ff4b4b; padding: 20px; border-radius: 10px; border: 3px solid #ffffff; margin-bottom: 25px; text-align: center;">
+    <h2 style="color: white; margin: 0; font-size: 1.8rem;">🚨 ¡PRUEBA DE ACTUALIZACIÓN EXITOSA! 🚨</h2>
+    <p style="color: white; font-size: 1.2rem; margin: 10px 0 0 0; font-weight: bold;">
+        Si puedes ver este recuadro rojo, significa que tu aplicación se ha actualizado con éxito a la versión v37 y tus nuevos botones gigantes ya están activos. 
+        Si NO ves este mensaje, estás editando el archivo equivocado en GitHub o Streamlit está leyendo otro repositorio.
+    </p>
+</div>
+""", unsafe_allow_html=True)
+
+
 
 # --- BASE DE DATOS Y CONFIGURACIÓN ---
 
