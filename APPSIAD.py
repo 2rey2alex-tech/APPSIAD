@@ -18,7 +18,7 @@ except ImportError:
 
 # Configuración de página de Streamlit
 st.set_page_config(
-    page_title="Alianza CryptoWallet v31",
+    page_title="Alianza CryptoWallet v38",
     page_icon="💼",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -27,16 +27,7 @@ st.set_page_config(
 if st_autorefresh is not None:
     st_autorefresh(interval=10000, key="datarefresh") # Auto-refresh every 10 seconds
 
-# --- BANNER DE DIAGNÓSTICO DE ACTUALIZACIÓN ---
-st.markdown("""
-<div style="background-color: #ff4b4b; padding: 20px; border-radius: 10px; border: 3px solid #ffffff; margin-bottom: 25px; text-align: center;">
-    <h2 style="color: white; margin: 0; font-size: 1.8rem;">🚨 ¡PRUEBA DE ACTUALIZACIÓN EXITOSA! 🚨</h2>
-    <p style="color: white; font-size: 1.2rem; margin: 10px 0 0 0; font-weight: bold;">
-        Si puedes ver este recuadro rojo, significa que tu aplicación se ha actualizado con éxito a la versión v37 y tus nuevos botones gigantes ya están activos. 
-        Si NO ves este mensaje, estás editando el archivo equivocado en GitHub o Streamlit está leyendo otro repositorio.
-    </p>
-</div>
-""", unsafe_allow_html=True)
+
 
 
 
@@ -1704,19 +1695,25 @@ st.markdown("""
         border-color: #ffd700 !important;
     }
 
-    /* Ocultar por completo el círculo de selección de radio nativo de Streamlit (Varios métodos para asegurar que funcione en cualquier versión) */
-    [data-testid="stSidebar"] [data-testid="stRadio"] [role="radiogroup"] label > div:first-child,
-    [data-testid="stSidebar"] [data-testid="stRadio"] label:has(input[type="radio"]) input[type="radio"] + div,
-    [data-testid="stSidebar"] [data-testid="stRadio"] label:has(input[type="radio"]) div:first-child,
-    [data-testid="stSidebar"] [data-testid="stRadio"] label[data-baseweb="radio"] input[type="radio"] + div,
-    [data-testid="stSidebar"] [data-testid="stRadio"] label[data-baseweb="radio"] > div:first-child {
+    /* Ocultar por completo el círculo de selección de radio nativo de Streamlit */
+    [data-testid="stSidebar"] [data-testid="stRadio"] [role="radiogroup"] input[type="radio"] {
+        display: none !important;
+    }
+    [data-testid="stSidebar"] [data-testid="stRadio"] [role="radiogroup"] label > div:not(:has([data-testid="stMarkdownContainer"])) {
         display: none !important;
         width: 0 !important;
         height: 0 !important;
         opacity: 0 !important;
         visibility: hidden !important;
     }
-
+    /* Asegurar que el contenedor del texto del botón esté siempre visible y ocupe el 100% de la tarjeta */
+    [data-testid="stSidebar"] [data-testid="stRadio"] [role="radiogroup"] label > div:has([data-testid="stMarkdownContainer"]) {
+        display: flex !important;
+        width: 100% !important;
+        justify-content: center !important;
+        align-items: center !important;
+    }
+    
     /* CONVERTIR MENÚ DE NAVEGACIÓN EN BOTONES GRANDES (CUADROS/TARJETAS FÍSICAS IDÉNTICAS AL BOTÓN DE CERRAR SESIÓN) */
     [data-testid="stSidebar"] [data-testid="stRadio"] legend, 
     [data-testid="stSidebar"] [data-testid="stRadio"] > label {
@@ -1852,6 +1849,7 @@ token_price_cop = token_price_usd * usd_cop
 
 if not st.session_state.logged_in:
     st.sidebar.title("🔐 Alianza CryptoWallet")
+    st.sidebar.markdown("<div style='background-color: #1e293b; padding: 6px 12px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 15px; text-align: center;'><span style='color: #ffd700; font-size: 0.85rem; font-weight: bold;'>🚀 Versión de la App: v38</span></div>", unsafe_allow_html=True)
     menu = st.sidebar.selectbox("Seleccione una opción", ["Iniciar Sesión", "Registrarse"])
     
     if menu == "Iniciar Sesión":
@@ -1917,6 +1915,7 @@ if not st.session_state.logged_in:
 else:
     # Sidebar de usuario conectado con toques dorados
     st.sidebar.markdown(f"<h2 class='golden-title'>👋 {st.session_state.fullname}</h2>", unsafe_allow_html=True)
+    st.sidebar.markdown("<div style='background-color: #1e293b; padding: 6px 12px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 15px; text-align: center;'><span style='color: #ffd700; font-size: 0.85rem; font-weight: bold;'>🚀 Versión de la App: v38</span></div>", unsafe_allow_html=True)
     st.sidebar.markdown(f"**Billetera ID (Código):** `{st.session_state.wallet_code}`")
     
     # Obtener el número de notificaciones pendientes
