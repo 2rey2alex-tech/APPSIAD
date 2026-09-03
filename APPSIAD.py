@@ -266,6 +266,91 @@ def init_db():
         """)
     
     # Crear un administrador por defecto si no existe
+    
+    # Tabla: game_settings (para configuraciones de los juegos)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS game_settings (
+            setting_key TEXT PRIMARY KEY,
+            value_text TEXT,
+            value_numeric REAL
+        )
+    """)
+    # Tabla: trivias (para trivias dinámicas activas)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS trivias (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            question TEXT,
+            option_a TEXT,
+            option_b TEXT,
+            option_c TEXT,
+            correct_option TEXT,
+            entry_fee REAL,
+            prize_sd REAL,
+            active INTEGER DEFAULT 1
+        )
+    """)
+    # Tabla: intentos de trivia del usuario para evitar spam
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS user_trivia_attempts (
+            user_code TEXT,
+            trivia_id INTEGER,
+            is_correct INTEGER,
+            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (user_code, trivia_id)
+        )
+    """)
+    # Tabla: sports_bets (para predicciones deportivas)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS sports_bets (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            match_name TEXT,
+            ticket_cost REAL,
+            prize_sd REAL,
+            status TEXT DEFAULT 'ACTIVE',
+            winner_option TEXT DEFAULT ''
+        )
+    """)
+    # Tabla: user_predictions
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS user_predictions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_code TEXT,
+            match_id INTEGER,
+            prediction TEXT,
+            status TEXT DEFAULT 'PENDING',
+            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(match_id) REFERENCES sports_bets(id)
+        )
+    """)
+    # Tabla: penny_auctions
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS penny_auctions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            item_name TEXT,
+            description TEXT,
+            current_price REAL,
+            highest_bidder TEXT,
+            ends_at DATETIME,
+            bid_fee_sd REAL,
+            bid_increment REAL,
+            status TEXT DEFAULT 'ACTIVE'
+        )
+    """)
+    # Tabla: user_unlocked_tips
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS user_unlocked_tips (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_code TEXT,
+            tip_id TEXT,
+            unlocked_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    
+    try:
+        cursor.execute("ALTER TABLE store_items ADD COLUMN delivery_fee_sd REAL DEFAULT 0.0")
+    except sqlite3.OperationalError:
+        pass
+
     cursor.execute("SELECT * FROM users WHERE username = 'admin'")
     if not cursor.fetchone():
         hashed_pw = hashlib.sha256("admin123".encode()).hexdigest()
@@ -273,6 +358,81 @@ def init_db():
             INSERT INTO users (username, password, fullname, email, wallet_code, balance, is_admin)
             VALUES ('admin', ?, 'Propietario de la App', 'admin@cryptowallet.com', '99999', 10000000.0, 1)
         """, (hashed_pw,))
+    
+    # Insertar artículos de la tienda adicionales (FOOD, CARRIER_RECHARGE) si están vacíos
+    try:
+        cursor.execute("SELECT COUNT(*) FROM store_items WHERE item_type = 'FOOD'")
+        if cursor.fetchone()[0] == 0:
+            cursor.execute("""
+                INSERT INTO store_items (name, description, price_sd, item_type, delivery_fee_sd) VALUES 
+                ('Combo Tinto y Empanada Express', '☕ Un tinto bien caliente con una deliciosa empanada crujiente de carne. El tinto perfecto para la calle.', 3.0, 'FOOD', 1.0),
+                ('Almuerzo Corriente Alianza', '🍲 Sopa del día, bandeja con fríjol, arroz, ensalada, carne asada, pollo frito o cerdo, y jugo natural bien helado.', 8.0, 'FOOD', 2.0)
+            """)
+    except Exception:
+        pass
+
+    try:
+        cursor.execute("SELECT COUNT(*) FROM store_items WHERE item_type = 'CARRIER_RECHARGE'")
+        if cursor.fetchone()[0] == 0:
+            cursor.execute("""
+                INSERT INTO store_items (name, description, price_sd, item_type, delivery_fee_sd) VALUES 
+                ('Paquete Claro Todo Incluido 3 Días', '📱 Minutos ilimitados, WhatsApp y redes sociales incluidas + 2GB de navegación para trabajar sin parar.', 4.0, 'CARRIER_RECHARGE', 0.0),
+                ('Paquete Tigo Datos Express 1 Día', '⚡ Navegación ilimitada por 24 horas consecutivas para conductores en moto.', 2.5, 'CARRIER_RECHARGE', 0.0)
+            """)
+    except Exception:
+        pass
+
+    # Insertar configuración por defecto para juegos
+    try:
+        cursor.execute("SELECT COUNT(*) FROM game_settings")
+        if cursor.fetchone()[0] == 0:
+            cursor.executemany("""
+                INSERT OR IGNORE INTO game_settings (setting_key, value_text, value_numeric) VALUES (?, ?, ?)
+            """, [
+                ('ruleta_cost', '', 1.0),
+                ('ruleta_prizes', '0.1,0.5,1.0,2.0,5.0,0.0', 0.0),
+                ('ruleta_prob', '20,30,25,15,5,5', 0.0),
+                ('ppt_multiplier', '', 1.90),
+                ('scratch_cost', '', 0.5),
+                ('scratch_prizes', '0.0,0.2,0.5,1.0,3.0,10.0', 0.0),
+                ('scratch_prob', '50,25,15,7,2,1', 0.0),
+                ('crypto_tip_cost', '', 0.2),
+                ('crypto_tip', '🔑 Consejo Cripto del Día: ¡No guardes todas tus criptomonedas en un solo exchange! Diversifica usando MetaMask y billeteras frías para tener el control total de tus llaves privadas.', 0.0)
+            ])
+    except Exception:
+        pass
+
+    try:
+        cursor.execute("SELECT COUNT(*) FROM trivias")
+        if cursor.fetchone()[0] == 0:
+            cursor.execute("""
+                INSERT OR IGNORE INTO trivias (question, option_a, option_b, option_c, correct_option, entry_fee, prize_sd, active) VALUES 
+                ('¿Cuál es el mecanismo de consenso principal de Binance Smart Chain (BSC)?', 'Proof of Work (PoW)', 'Proof of Staked Authority (PoSA)', 'Proof of Space (PoS)', 'B', 0.5, 1.5, 1)
+            """)
+    except Exception:
+        pass
+
+    try:
+        cursor.execute("SELECT COUNT(*) FROM sports_bets")
+        if cursor.fetchone()[0] == 0:
+            cursor.execute("""
+                INSERT OR IGNORE INTO sports_bets (match_name, ticket_cost, prize_sd, status) VALUES 
+                ('Colombia vs. Brasil (Clasificatorias)', 1.0, 3.0, 'ACTIVE')
+            """)
+    except Exception:
+        pass
+
+    try:
+        cursor.execute("SELECT COUNT(*) FROM penny_auctions")
+        if cursor.fetchone()[0] == 0:
+            ends_at_str = (datetime.utcnow() + timedelta(hours=2)).strftime('%Y-%m-%d %H:%M:%S')
+            cursor.execute("""
+                INSERT OR IGNORE INTO penny_auctions (item_name, description, current_price, highest_bidder, ends_at, bid_fee_sd, bid_increment, status) VALUES 
+                ('Tarjeta Regalo Netflix 1 Mes', '🎬 Pin digital de Netflix Premium para disfrutar de series y películas.', 1.0, '99999', ?, 0.1, 0.05, 'ACTIVE')
+            """, (ends_at_str,))
+    except Exception:
+        pass
+
     conn.commit()
     conn.close()
 
@@ -328,14 +488,14 @@ def update_token_settings(name, symbol, contract, price_usd, nequi_number):
     conn.commit()
     conn.close()
 
-def update_store_item_price(item_id, price_sd, name, description):
+def update_store_item_price(item_id, price_sd, name, description, delivery_fee_sd=0.0):
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute("""
         UPDATE store_items 
-        SET price_sd = ?, name = ?, description = ? 
+        SET price_sd = ?, name = ?, description = ?, delivery_fee_sd = ? 
         WHERE id = ?
-    """, (price_sd, name, description, item_id))
+    """, (price_sd, name, description, delivery_fee_sd, item_id))
     conn.commit()
     conn.close()
     return True
@@ -486,14 +646,20 @@ def buy_store_item(user_code, item_id):
     conn = get_db_connection()
     cursor = conn.cursor()
     
-    # 1. Obtener precio y tipo del artículo
-    cursor.execute("SELECT name, price_sd, item_type FROM store_items WHERE id = ?", (item_id,))
+    # 1. Obtener precio, tipo y costo de envío del artículo
+    cursor.execute("SELECT name, price_sd, item_type, delivery_fee_sd FROM store_items WHERE id = ?", (item_id,))
     item = cursor.fetchone()
     if not item:
         conn.close()
         return False, "El artículo seleccionado no existe."
     
-    item_name, price_sd, item_type = item
+    item_name, price_sd, item_type, delivery_fee_sd = item
+    if delivery_fee_sd is None:
+        delivery_fee_sd = 0.0
+        
+    total_cost_sd = price_sd
+    if item_type == 'FOOD':
+        total_cost_sd = price_sd + delivery_fee_sd
     
     # 2. Verificar si ya es VIP si intenta comprar membresía VIP
     if item_type == 'MEMBERSHIP':
@@ -506,26 +672,26 @@ def buy_store_item(user_code, item_id):
     # 3. Verificar saldo del usuario
     cursor.execute("SELECT balance FROM users WHERE wallet_code = ?", (user_code,))
     balance_row = cursor.fetchone()
-    if not balance_row or balance_row[0] < price_sd:
+    if not balance_row or balance_row[0] < total_cost_sd:
         conn.close()
-        return False, "Saldo de tokens SIAD (SD) insuficiente para realizar esta compra."
+        return False, f"Saldo de tokens SIAD (SD) insuficiente para realizar esta compra (Se requiere {format_num(total_cost_sd)} SD)."
         
     try:
         # 4. Descontar balance de SD del usuario
-        cursor.execute("UPDATE users SET balance = balance - ? WHERE wallet_code = ?", (price_sd, user_code))
+        cursor.execute("UPDATE users SET balance = balance - ? WHERE wallet_code = ?", (total_cost_sd, user_code))
         
         # 5. Registrar la compra en store_purchases
         cursor.execute("""
             INSERT INTO store_purchases (user_code, item_id, price_sd, status)
             VALUES (?, ?, ?, 'PENDING')
-        """, (user_code, item_id, price_sd))
+        """, (user_code, item_id, total_cost_sd))
         purchase_id = cursor.lastrowid
         
         # 6. Registrar una transacción ficticia para el historial de transacciones
         cursor.execute("""
             INSERT INTO transactions (sender_code, receiver_code, amount)
             VALUES (?, 'SYSTEM_STORE', ?)
-        """, (user_code, price_sd))
+        """, (user_code, total_cost_sd))
         
         conn.commit()
         conn.close()
@@ -533,14 +699,15 @@ def buy_store_item(user_code, item_id):
         # 7. Notificación al usuario
         add_notification(
             user_code,
-            f"🛍️ <b>¡Pedido recibido!</b> Has comprado <b>{item_name}</b> por <b>{format_num(price_sd)} SD</b>. "
+            f"🛍️ <b>¡Pedido recibido!</b> Has comprado <b>{item_name}</b> por <b>{format_num(total_cost_sd)} SD</b> "
+            f"(Envío: {format_num(delivery_fee_sd)} SD incluido). "
             f"Tu pedido se encuentra pendiente de entrega por el administrador."
         )
         return True, "Compra registrada con éxito. Se encuentra en espera de entrega por el administrador."
     except Exception as e:
         conn.rollback()
         conn.close()
-        return False, f"Error al procesar la compra: {str(e)}"
+        return False, f"Error al procesar la compra: {str(e)}" 
 
 def deliver_store_purchase(purchase_id, code_delivered=""):
     conn = get_db_connection()
@@ -1218,6 +1385,358 @@ def update_global_nequi(nequi_number):
     conn.commit()
     conn.close()
     return True
+
+
+# --- FUNCIONES DE JUEGOS Y CONTROL ---
+
+def get_game_setting(key, default_val="", default_num=0.0):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT value_text, value_numeric FROM game_settings WHERE setting_key = ?", (key,))
+    res = cursor.fetchone()
+    conn.close()
+    if res:
+        return res[0], res[1]
+    return default_val, default_num
+
+def update_game_setting(key, text_val, num_val):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT OR REPLACE INTO game_settings (setting_key, value_text, value_numeric)
+        VALUES (?, ?, ?)
+    """, (key, text_val, num_val))
+    conn.commit()
+    conn.close()
+    return True
+
+# --- FUNCIONES DE TRIVIA ---
+def get_active_trivia():
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT id, question, option_a, option_b, option_c, correct_option, entry_fee, prize_sd 
+        FROM trivias WHERE active = 1 ORDER BY id DESC LIMIT 1
+    """)
+    res = cursor.fetchone()
+    conn.close()
+    if res:
+        return {
+            "id": res[0],
+            "question": res[1],
+            "option_a": res[2],
+            "option_b": res[3],
+            "option_c": res[4],
+            "correct_option": res[5],
+            "entry_fee": res[6],
+            "prize_sd": res[7]
+        }
+    return None
+
+def has_user_answered_trivia(user_code, trivia_id):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT 1 FROM user_trivia_attempts WHERE user_code = ? AND trivia_id = ?", (user_code, trivia_id))
+    res = cursor.fetchone()
+    conn.close()
+    return bool(res)
+
+def play_trivia(user_code, trivia_id, chosen_option):
+    trivia = get_active_trivia()
+    if not trivia or trivia["id"] != trivia_id:
+        return False, "La trivia seleccionada ya no está activa."
+        
+    if has_user_answered_trivia(user_code, trivia_id):
+        return False, "Ya has participado en esta trivia."
+        
+    # Verificar saldo
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT balance FROM users WHERE wallet_code = ?", (user_code,))
+    user_bal = cursor.fetchone()
+    if not user_bal or user_bal[0] < trivia["entry_fee"]:
+        conn.close()
+        return False, f"Saldo insuficiente. Jugar esta trivia cuesta {trivia['entry_fee']} SD."
+        
+    is_correct = 1 if chosen_option == trivia["correct_option"] else 0
+    
+    try:
+        # Descontar del usuario y sumarle al admin
+        cursor.execute("UPDATE users SET balance = balance - ? WHERE wallet_code = ?", (trivia["entry_fee"], user_code))
+        cursor.execute("UPDATE users SET balance = balance + ? WHERE wallet_code = '99999'", (trivia["entry_fee"],))
+        
+        # Registrar transacción de entrada
+        cursor.execute("""
+            INSERT INTO transactions (sender_code, receiver_code, amount)
+            VALUES (?, 'SYSTEM_TRIVIA_FEE', ?)
+        """, (user_code, trivia["entry_fee"]))
+        
+        # Registrar intento
+        cursor.execute("""
+            INSERT INTO user_trivia_attempts (user_code, trivia_id, is_correct)
+            VALUES (?, ?, ?)
+        """, (user_code, trivia_id, is_correct))
+        
+        if is_correct:
+            # Pagar premio desde el admin
+            cursor.execute("UPDATE users SET balance = balance - ? WHERE wallet_code = '99999'", (trivia["prize_sd"],))
+            cursor.execute("UPDATE users SET balance = balance + ? WHERE wallet_code = ?", (trivia["prize_sd"], user_code))
+            
+            # Registrar transacción de premio
+            cursor.execute("""
+                INSERT INTO transactions (sender_code, receiver_code, amount)
+                VALUES ('SYSTEM_TRIVIA_REWARD', ?, ?)
+            """, (user_code, trivia["prize_sd"]))
+            
+            add_notification(user_code, f"🧠 <b>¡Trivia Completada!</b> Has respondido correctamente y ganaste <b>{format_num(trivia['prize_sd'])} SD</b>.")
+            msg = f"🎉 ¡Excelente! Has respondido correctamente la opción {chosen_option} y has ganado {format_num(trivia['prize_sd'])} SD."
+        else:
+            add_notification(user_code, f"🧠 <b>¡Trivia Completada!</b> Tu respuesta fue incorrecta. La opción correcta era <b>{trivia['correct_option']}</b>.")
+            msg = f"😢 Tu respuesta fue incorrecta. La opción correcta era la {trivia['correct_option']}. ¡Sigue intentando con la próxima!"
+            
+        conn.commit()
+        conn.close()
+        return True, msg
+    except Exception as e:
+        conn.rollback()
+        conn.close()
+        return False, f"Error al procesar trivia: {str(e)}"
+
+# --- FUNCIONES DE PRONÓSTICOS DEPORTIVOS ---
+def get_active_sports_bet():
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT id, match_name, ticket_cost, prize_sd, status, winner_option 
+        FROM sports_bets WHERE status = 'ACTIVE' ORDER BY id DESC LIMIT 1
+    """)
+    res = cursor.fetchone()
+    conn.close()
+    if res:
+        return {
+            "id": res[0],
+            "match_name": res[1],
+            "ticket_cost": res[2],
+            "prize_sd": res[3],
+            "status": res[4],
+            "winner_option": res[5]
+        }
+    return None
+
+def get_user_prediction(user_code, match_id):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT prediction FROM user_predictions WHERE user_code = ? AND match_id = ?", (user_code, match_id))
+    res = cursor.fetchone()
+    conn.close()
+    return res[0] if res else None
+
+def buy_sports_prediction(user_code, match_id, chosen_prediction):
+    bet = get_active_sports_bet()
+    if not bet or bet["id"] != match_id:
+        return False, "Este pronóstico ya no está activo."
+        
+    already_pred = get_user_prediction(user_code, match_id)
+    if already_pred:
+        return False, f"Ya compraste un ticket de pronóstico para este partido. Elegiste: {already_pred}."
+        
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT balance FROM users WHERE wallet_code = ?", (user_code,))
+    user_bal = cursor.fetchone()
+    if not user_bal or user_bal[0] < bet["ticket_cost"]:
+        conn.close()
+        return False, f"Saldo insuficiente. El ticket de pronóstico cuesta {bet['ticket_cost']} SD."
+        
+    try:
+        # Descontar del usuario y sumarle al admin
+        cursor.execute("UPDATE users SET balance = balance - ? WHERE wallet_code = ?", (bet["ticket_cost"], user_code))
+        cursor.execute("UPDATE users SET balance = balance + ? WHERE wallet_code = '99999'", (bet["ticket_cost"],))
+        
+        # Registrar transacción
+        cursor.execute("""
+            INSERT INTO transactions (sender_code, receiver_code, amount)
+            VALUES (?, 'SYSTEM_SPORTS_TICKET', ?)
+        """, (user_code, bet["ticket_cost"]))
+        
+        # Registrar predicción
+        cursor.execute("""
+            INSERT INTO user_predictions (user_code, match_id, prediction, status)
+            VALUES (?, ?, ?, 'PENDING')
+        """, (user_code, match_id, chosen_prediction))
+        
+        conn.commit()
+        conn.close()
+        
+        add_notification(user_code, f"⚽ <b>¡Pronóstico Registrado!</b> Compraste un ticket para el partido <b>{bet['match_name']}</b>. Elegiste: <b>{chosen_prediction}</b>.")
+        return True, f"¡Ticket comprado con éxito! Registraste tu pronóstico '{chosen_prediction}' por {bet['ticket_cost']} SD."
+    except Exception as e:
+        conn.rollback()
+        conn.close()
+        return False, f"Error al procesar ticket: {str(e)}"
+
+def resolve_sports_bet(match_id, winning_option):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        # 1. Marcar el partido como resuelto
+        cursor.execute("UPDATE sports_bets SET status = 'RESOLVED', winner_option = ? WHERE id = ?", (winning_option, match_id))
+        
+        # 2. Obtener datos del partido
+        cursor.execute("SELECT match_name, prize_sd FROM sports_bets WHERE id = ?", (match_id,))
+        match_row = cursor.fetchone()
+        match_name = match_row[0]
+        prize_sd = match_row[1]
+        
+        # 3. Obtener todas las predicciones para este partido
+        cursor.execute("SELECT id, user_code, prediction FROM user_predictions WHERE match_id = ?", (match_id,))
+        predictions = cursor.fetchall()
+        
+        for pred_id, user_code, prediction in predictions:
+            if prediction == winning_option:
+                # Actualizar predicción a GANADA
+                cursor.execute("UPDATE user_predictions SET status = 'WON' WHERE id = ?", (pred_id,))
+                
+                # Pagar premio al usuario desde el admin
+                cursor.execute("UPDATE users SET balance = balance - ? WHERE wallet_code = '99999'", (prize_sd,))
+                cursor.execute("UPDATE users SET balance = balance + ? WHERE wallet_code = ?", (prize_sd, user_code))
+                
+                # Registrar transacción de premio
+                cursor.execute("""
+                    INSERT INTO transactions (sender_code, receiver_code, amount)
+                    VALUES ('SYSTEM_SPORTS_REWARD', ?, ?)
+                """, (user_code, prize_sd))
+                
+                add_notification(
+                    user_code, 
+                    f"⚽ <b>¡Pronóstico Ganado!</b> Tu pronóstico para <b>{match_name}</b> fue acertado. "
+                    f"Has ganado el premio de <b>{format_num(prize_sd)} SD</b>."
+                )
+            else:
+                # Actualizar predicción a PERDIDA
+                cursor.execute("UPDATE user_predictions SET status = 'LOST' WHERE id = ?", (pred_id,))
+                add_notification(
+                    user_code, 
+                    f"⚽ <b>¡Pronóstico Finalizado!</b> El partido <b>{match_name}</b> finalizó con resultado <b>{winning_option}</b>. "
+                    f"Tu pronóstico no acertó. ¡Suerte en el próximo partido!"
+                )
+                
+        conn.commit()
+        conn.close()
+        return True, "¡Partido resuelto con éxito! Se acreditaron los premios a todos los ganadores."
+    except Exception as e:
+        conn.rollback()
+        conn.close()
+        return False, f"Error al resolver partido: {str(e)}"
+
+# --- FUNCIONES DE SUBASTA DE CENTAVOS ---
+def get_active_auction():
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT id, item_name, description, current_price, highest_bidder, ends_at, bid_fee_sd, bid_increment, status 
+        FROM penny_auctions WHERE status = 'ACTIVE' ORDER BY id DESC LIMIT 1
+    """)
+    res = cursor.fetchone()
+    conn.close()
+    if res:
+        return {
+            "id": res[0],
+            "item_name": res[1],
+            "description": res[2],
+            "current_price": res[3],
+            "highest_bidder": res[4],
+            "ends_at": res[5],
+            "bid_fee_sd": res[6],
+            "bid_increment": res[7],
+            "status": res[8]
+        }
+    return None
+
+def place_penny_bid(user_code, auction_id):
+    auc = get_active_auction()
+    if not auc or auc["id"] != auction_id:
+        return False, "La subasta ya no está activa."
+        
+    # Verificar si el tiempo ya expiró
+    ends_at_time = datetime.strptime(auc["ends_at"], "%Y-%m-%d %H:%M:%S")
+    now_time = datetime.utcnow()
+    if now_time >= ends_at_time:
+        # Marcar subasta como finalizada
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("UPDATE penny_auctions SET status = 'ENDED' WHERE id = ?", (auction_id,))
+        conn.commit()
+        conn.close()
+        return False, "La subasta ha finalizado."
+        
+    # Verificar saldo
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT balance FROM users WHERE wallet_code = ?", (user_code,))
+    user_bal = cursor.fetchone()
+    if not user_bal or user_bal[0] < auc["bid_fee_sd"]:
+        conn.close()
+        return False, f"Saldo insuficiente. Pujar cuesta {auc['bid_fee_sd']} SD."
+        
+    try:
+        # Cobrar la tarifa de puja (se envía al administrador 99999)
+        cursor.execute("UPDATE users SET balance = balance - ? WHERE wallet_code = ?", (auc["bid_fee_sd"], user_code))
+        cursor.execute("UPDATE users SET balance = balance + ? WHERE wallet_code = '99999'", (auc["bid_fee_sd"],))
+        
+        # Registrar transacción
+        cursor.execute("""
+            INSERT INTO transactions (sender_code, receiver_code, amount)
+            VALUES (?, 'SYSTEM_AUCTION_BID_FEE', ?)
+        """, (user_code, auc["bid_fee_sd"]))
+        
+        # Incrementar el precio y cambiar el mejor postor
+        new_price = auc["current_price"] + auc["bid_increment"]
+        
+        # Extender el tiempo en 15 segundos si faltan menos de 60 segundos
+        seconds_remaining = (ends_at_time - now_time).total_seconds()
+        new_ends_at = ends_at_time
+        if seconds_remaining < 60:
+            new_ends_at = now_time + timedelta(seconds=20) # Añadir 20 segundos
+            
+        new_ends_at_str = new_ends_at.strftime('%Y-%m-%d %H:%M:%S')
+        
+        cursor.execute("""
+            UPDATE penny_auctions 
+            SET current_price = ?, highest_bidder = ?, ends_at = ? 
+            WHERE id = ?
+        """, (new_price, user_code, new_ends_at_str, auction_id))
+        
+        conn.commit()
+        conn.close()
+        return True, "¡Puja colocada con éxito!"
+    except Exception as e:
+        conn.rollback()
+        conn.close()
+        return False, f"Error al procesar puja: {str(e)}"
+
+def check_and_finalize_auctions():
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT id, item_name, highest_bidder, ends_at FROM penny_auctions WHERE status = 'ACTIVE'")
+    active_aucs = cursor.fetchall()
+    now_time = datetime.utcnow()
+    for aid, item_name, bidder, ends_at_str in active_aucs:
+        ends_at_time = datetime.strptime(ends_at_str, "%Y-%m-%d %H:%M:%S")
+        if now_time >= ends_at_time:
+            # Marcar como finalizado
+            cursor.execute("UPDATE penny_auctions SET status = 'ENDED' WHERE id = ?", (aid,))
+            if bidder and bidder != "99999":
+                add_notification(
+                    bidder, 
+                    f"🔨 <b>¡Ganaste la Subasta!</b> Felicitaciones, ganaste la subasta de <b>{item_name}</b>. "
+                    f"Ingresa a la tienda Alianza en la sección de subastas para reclamar tu premio."
+                )
+    conn.commit()
+    conn.close()
+
+# Ejecutar chequeo de subastas automáticamente
+check_and_finalize_auctions()
 
 # --- LÓGICA DE MENSAJERÍA Y MÓVILES (EMPRESA DE MENSAJERÍA) ---
 
@@ -3118,11 +3637,11 @@ else:
     # --- TIENDA Alianza (COMPRA DE ARTÍCULOS Y MEMBRESÍA VIP) ---
     elif choice == "🛍️ Tienda Alianza":
         st.markdown(f"<h1 class='golden-title'>🛍️ Tienda Oficial Alianza ({token['symbol']})</h1>", unsafe_allow_html=True)
-        st.write("Gasta tus tokens SIAD (SD) acumulados en entretenimiento, recargas de juegos o adquiere la membresía VIP para maximizar tus ganancias financieras.")
-        
+        st.write("Gasta tus tokens SIAD (SD) acumulados en entretenimiento, alimentos express, recargas de datos, o diviértete con nuestros micro-juegos y sorteos de alta rotación diaria.")
+    
         # Consultar si el usuario es VIP
         is_vip_val = is_vip_user == 1
-        
+    
         # Tarjeta VIP de estado del usuario
         if is_vip_val:
             st.markdown("""
@@ -3144,51 +3663,613 @@ else:
                 </p>
             </div>
             """, unsafe_allow_html=True)
-            
-        # Catálogo de Artículos
-        st.subheader("🛒 Catálogo de Artículos y Membresías")
+
+        # 4 TABS DE LA TIENDA
+        tab_pines, tab_recargas, tab_comida, tab_juegos = st.tabs([
+            "🎁 Pines y Membresías",
+            "📱 Recargas Móviles",
+            "🍔 Alimentos y Bebidas",
+            "🎮 Juegos y Sorteos"
+        ])
+
+        # Tab 1: Pines y Membresías
+        with tab_pines:
+            st.subheader("🛒 Pines de Entretenimiento y Regalos")
+            st.write("Adquiere membresías oficiales y tarjetas de regalo digitales de inmediato.")
+            conn = get_db_connection()
+            items_pines_df = pd.read_sql_query("SELECT id, name, description, price_sd, item_type FROM store_items WHERE item_type IN ('MEMBERSHIP', 'GIFT_CARD')", conn)
+            conn.close()
         
-        conn = get_db_connection()
-        items_df = pd.read_sql_query("SELECT id, name, description, price_sd, item_type FROM store_items", conn)
-        conn.close()
-        
-        col_item_cards = st.columns(3)
-        for idx, row in items_df.iterrows():
-            col_idx = idx % 3
-            with col_item_cards[col_idx]:
-                border_color = "#ffd700" if row['item_type'] == 'MEMBERSHIP' else "#10b981"
-                btn_label = "Adquirir Membresía" if row['item_type'] == 'MEMBERSHIP' else f"Comprar Pin"
-                
-                # Deshabilitar si ya es VIP
-                is_disabled = row['item_type'] == 'MEMBERSHIP' and is_vip_val
-                
-                st.markdown(f"""
-                <div class="card" style="border-color: {border_color}; min-height: 240px; display: flex; flex-direction: column; justify-content: space-between;">
-                    <div>
-                        <h4 style="color: {border_color}; margin-top:0;">{row['name']}</h4>
-                        <p style="font-size:0.85rem; color:#e2e8f0; line-height: 1.3rem; min-height: 60px;">{row['description']}</p>
-                    </div>
-                    <div style="margin-top: 15px;">
-                        <span style="font-size: 1.3rem; font-weight: 800; color: #ffffff;">{row['price_sd']:,.2f} SD</span>
-                        <span style="font-size: 0.8rem; color: #a1a1aa; display:block;">Equivale aprox. a ${(row['price_sd'] * token_price_cop):,.0f} COP</span>
-                    </div>
-                </div>
-                """, unsafe_allow_html=True)
-                
-                if is_disabled:
-                    st.button("👑 VIP Ya Adquirido", key=f"buy_btn_{row['id']}", disabled=True)
-                else:
-                    if st.button(f"{btn_label} - {row['price_sd']} SD", key=f"buy_btn_{row['id']}"):
-                        success, msg = buy_store_item(st.session_state.wallet_code, row['id'])
-                        if success:
-                            st.balloons()
-                            st.success(msg)
-                            st.rerun()
+            if len(items_pines_df) == 0:
+                st.info("No hay pines ni membresías configuradas.")
+            else:
+                col_p_cards = st.columns(3)
+                for idx_p, row_p in items_pines_df.iterrows():
+                    col_idx = idx_p % 3
+                    with col_p_cards[col_idx]:
+                        border_color = "#ffd700" if row_p['item_type'] == 'MEMBERSHIP' else "#10b981"
+                        btn_label = "Adquirir Membresía" if row_p['item_type'] == 'MEMBERSHIP' else "Comprar Pin"
+                        is_disabled = row_p['item_type'] == 'MEMBERSHIP' and is_vip_val
+                    
+                        st.markdown(f"""
+                        <div class="card" style="border-color: {border_color}; min-height: 240px; display: flex; flex-direction: column; justify-content: space-between;">
+                            <div>
+                                <h4 style="color: {border_color}; margin-top:0;">{row_p['name']}</h4>
+                                <p style="font-size:0.85rem; color:#e2e8f0; line-height: 1.3rem; min-height: 60px;">{row_p['description']}</p>
+                            </div>
+                            <div style="margin-top: 15px;">
+                                <span style="font-size: 1.3rem; font-weight: 800; color: #ffffff;">{row_p['price_sd']:,.2f} SD</span>
+                                <span style="font-size: 0.8rem; color: #a1a1aa; display:block;">Equivale aprox. a ${(row_p['price_sd'] * token_price_cop):,.0f} COP</span>
+                            </div>
+                        </div>
+                        """, unsafe_allow_html=True)
+                    
+                        if is_disabled:
+                            st.button("👑 VIP Ya Adquirido", key=f"buy_p_btn_{row_p['id']}", disabled=True)
                         else:
-                            st.error(msg)
+                            if st.button(f"{btn_label} - {row_p['price_sd']} SD", key=f"buy_p_btn_{row_p['id']}"):
+                                success, msg = buy_store_item(st.session_state.wallet_code, row_p['id'])
+                                if success:
+                                    st.balloons()
+                                    st.success(msg)
+                                    st.rerun()
+                                else:
+                                    st.error(msg)
+
+        # Tab 2: Recargas Móviles (Punto 1)
+        with tab_recargas:
+            st.subheader("📱 Paquetes de Datos y Minutos de Celular")
+            st.write("Recarga paquetes de telefonía móvil de Claro, Tigo, Movistar, o Wom al instante pagando con tus tokens Alianza.")
+            conn = get_db_connection()
+            items_recargas_df = pd.read_sql_query("SELECT id, name, description, price_sd FROM store_items WHERE item_type = 'CARRIER_RECHARGE'", conn)
+            conn.close()
+        
+            if len(items_recargas_df) == 0:
+                st.info("No hay paquetes de recargas disponibles en este momento.")
+            else:
+                col_r_cards = st.columns(2)
+                for idx_r, row_r in items_recargas_df.iterrows():
+                    col_idx = idx_r % 2
+                    with col_r_cards[col_idx]:
+                        st.markdown(f"""
+                        <div class="card" style="border-color: #3b82f6; min-height: 200px; display: flex; flex-direction: column; justify-content: space-between;">
+                            <div>
+                                <h4 style="color: #3b82f6; margin-top:0;">📱 {row_r['name']}</h4>
+                                <p style="font-size:0.85rem; color:#e2e8f0; line-height: 1.3rem;">{row_r['description']}</p>
+                            </div>
+                            <div style="margin-top: 15px;">
+                                <span style="font-size: 1.25rem; font-weight: 800; color: #ffffff;">{row_r['price_sd']:,.2f} SD</span>
+                                <span style="font-size: 0.8rem; color: #a1a1aa; display:block;">Equivale aprox. a ${(row_r['price_sd'] * token_price_cop):,.0f} COP</span>
+                            </div>
+                        </div>
+                        """, unsafe_allow_html=True)
+                    
+                        if st.button(f"Comprar Paquete - {row_r['price_sd']} SD", key=f"buy_r_btn_{row_r['id']}"):
+                            success, msg = buy_store_item(st.session_state.wallet_code, row_r['id'])
+                            if success:
+                                st.balloons()
+                                st.success(msg)
+                                st.rerun()
+                            else:
+                                st.error(msg)
+
+        # Tab 3: Alimentos y Bebidas (Punto 4 + Categoría Alimentos con envío)
+        with tab_comida:
+            st.subheader("🍔 Cafetería, Comida Rápida y Bebidas Express")
+            st.write("¿Tienes hambre en la calle? Pide combos de alimentos o bebidas. **El costo del envío se suma automáticamente** y puedes modificar estos valores cuando quieras.")
+            conn = get_db_connection()
+            items_food_df = pd.read_sql_query("SELECT id, name, description, price_sd, delivery_fee_sd FROM store_items WHERE item_type = 'FOOD'", conn)
+            conn.close()
+        
+            if len(items_food_df) == 0:
+                st.info("No hay alimentos configurados en el catálogo actualmente.")
+            else:
+                col_f_cards = st.columns(2)
+                for idx_f, row_f in items_food_df.iterrows():
+                    col_idx = idx_f % 2
+                
+                    base_price = row_f['price_sd']
+                    delivery_fee = row_f['delivery_fee_sd'] if row_f['delivery_fee_sd'] is not None else 0.0
+                    total_food_cost = base_price + delivery_fee
+                
+                    with col_f_cards[col_idx]:
+                        st.markdown(f"""
+                        <div class="card" style="border-color: #ef4444; min-height: 240px; display: flex; flex-direction: column; justify-content: space-between;">
+                            <div>
+                                <h4 style="color: #ef4444; margin-top:0;">🍔 {row_f['name']}</h4>
+                                <p style="font-size:0.85rem; color:#e2e8f0; line-height: 1.3rem;">{row_f['description']}</p>
+                                <span style="font-size:0.8rem; color:#a1a1aa; display:block; margin-top:5px;">
+                                    💵 <b>Precio base:</b> {format_num(base_price)} SD | 🚚 <b>Costo Envío:</b> {format_num(delivery_fee)} SD
+                                </span>
+                            </div>
+                            <div style="margin-top: 15px; border-top: 1px dashed rgba(255,255,255,0.1); padding-top:10px;">
+                                <span style="font-size: 1.35rem; font-weight: 900; color: #ffd700;">{format_num(total_food_cost)} SD Total</span>
+                                <span style="font-size: 0.8rem; color: #a1a1aa; display:block;">Equivale aprox. a ${(total_food_cost * token_price_cop):,.0f} COP</span>
+                            </div>
+                        </div>
+                        """, unsafe_allow_html=True)
+                    
+                        if st.button(f"Pedir Alimento (Total: {format_num(total_food_cost)} SD)", key=f"buy_f_btn_{row_f['id']}"):
+                            success, msg = buy_store_item(st.session_state.wallet_code, row_f['id'])
+                            if success:
+                                st.balloons()
+                                st.success(msg)
+                                st.rerun()
+                            else:
+                                st.error(msg)
+
+        # Tab 4: Juegos y Sorteos (Lucky Spin, PPT, Trivia, Pronósticos, Subastas, Raspa y Gana, Consejo Cripto)
+        with tab_juegos:
+            st.subheader("🎮 Centro de Micro-Juegos y Sorteos de Alta Rotación")
+            st.write("Gasta tus fracciones de tokens para ganar grandes premios acumulados. ¡Toda la diversión en un solo lugar!")
+        
+            # Sub-tabs para organizar los 7 juegos
+            tab_sub_spin, tab_sub_ppt, tab_sub_trivia, tab_sub_bets, tab_sub_auc, tab_sub_scratch, tab_sub_tip = st.tabs([
+                "🎡 Lucky Spin",
+                "🥊 Piedra/Papel/Tijera",
+                "🧠 Trivia Alianza",
+                "⚽ Pronósticos",
+                "🔨 Subastas",
+                "🎟️ Raspa y Gana",
+                "🔮 Consejo Cripto"
+            ])
+        
+            # ----------------- JUEGO 1: LUCKY SPIN (RULETA) -----------------
+            with tab_sub_spin:
+                st.markdown("#### 🎡 La Ruleta de la Fortuna Alianza (Lucky Spin)")
+            
+                _, spin_cost = get_game_setting('ruleta_cost', default_num=1.0)
+                prizes_str, _ = get_game_setting('ruleta_prizes', default_val='0.1,0.5,1.0,2.0,5.0,0.0')
+                probs_str, _ = get_game_setting('ruleta_prob', default_val='20,30,25,15,5,5')
+            
+                spin_prizes = [float(p) for p in prizes_str.split(',') if p]
+                spin_probs = [int(p) for p in probs_str.split(',') if p]
+            
+                col_spin_l, col_spin_r = st.columns([1, 1])
+                with col_spin_l:
+                    st.markdown(f"""
+                    <div class="card" style="border-left: 4px solid #ffd700;">
+                        <h5 style="color:#ffd700; margin-top:0;">⚡ Multiplica tus Monedas</h5>
+                        <p style="font-size:0.9rem; color:#ffffff;">Girar la ruleta tiene un costo de <b>{format_num(spin_cost)} SD</b>. Los premios configurados por el administrador hoy son:</p>
+                        <ul style="font-size:0.85rem; color:#a1a1aa; padding-left:20px;">
+                            <li>🚀 Gran Premio: <b>{format_num(max(spin_prizes))} SD</b></li>
+                            <li>💎 Otros Premios: {', '.join([f"{format_num(p)} SD" for p in sorted(list(set(spin_prizes))) if p > 0])}</li>
+                            <li>💀 Casilla perder: 0 SD</li>
+                        </ul>
+                    </div>
+                    """, unsafe_allow_html=True)
+                with col_spin_r:
+                    if st.button("🎡 Girar Ruleta Ahora", key="play_spin_btn"):
+                        # Verificar saldo
+                        if balance < spin_cost:
+                            st.error(f"⚠️ Saldo insuficiente para girar la ruleta. Cuesta {format_num(spin_cost)} SD.")
+                        else:
+                            with st.spinner("⏳ ¡Girando la ruleta con física 3D en la blockchain...!"):
+                                import time
+                                time.sleep(2.0) # Simulación de animación
+                            
+                                # Realizar tiro probabilístico
+                                import random
+                                choices = list(range(len(spin_prizes)))
+                                chosen_idx = random.choices(choices, weights=spin_probs, k=1)[0]
+                                won_prize = spin_prizes[chosen_idx]
+                            
+                                conn_g = get_db_connection()
+                                cursor_g = conn_g.cursor()
+                                try:
+                                    # Descontar costo y abonar premio
+                                    cursor_g.execute("UPDATE users SET balance = balance - ? WHERE wallet_code = ?", (spin_cost, st.session_state.wallet_code))
+                                    cursor_g.execute("UPDATE users SET balance = balance + ? WHERE wallet_code = ?", (won_prize, st.session_state.wallet_code))
+                                    cursor_g.execute("UPDATE users SET balance = balance + ? WHERE wallet_code = '99999'", (spin_cost - won_prize,))
+                                
+                                    # Registrar transacciones
+                                    cursor_g.execute("""
+                                        INSERT INTO transactions (sender_code, receiver_code, amount)
+                                        VALUES (?, 'SYSTEM_LUCKY_SPIN_FEE', ?)
+                                    """, (st.session_state.wallet_code, spin_cost))
+                                
+                                    if won_prize > 0:
+                                        cursor_g.execute("""
+                                            INSERT INTO transactions (sender_code, receiver_code, amount)
+                                            VALUES ('SYSTEM_LUCKY_SPIN_REWARD', ?, ?)
+                                        """, (st.session_state.wallet_code, won_prize))
+                                    
+                                    conn_g.commit()
+                                    conn_g.close()
+                                
+                                    if won_prize > spin_cost:
+                                        st.balloons()
+                                        st.success(f"🎉 ¡SÚPER GANANCIA! La ruleta se detuvo en: ¡{format_num(won_prize)} SD! Te has acreditado el premio.")
+                                    elif won_prize > 0:
+                                        st.success(f"👍 ¡Felicidades! Ganaste {format_num(won_prize)} SD en la ruleta.")
+                                    else:
+                                        st.warning("😢 Esta vez no tuviste suerte y cayó en 0 SD. ¡Intenta de nuevo, la suerte cambia en un segundo!")
+                                    
+                                    time.sleep(1.0)
+                                    st.rerun()
+                                except Exception as e:
+                                    conn_g.rollback()
+                                    conn_g.close()
+                                    st.error(f"Error al procesar el tiro: {str(e)}")
+
+            # ----------------- JUEGO 2: PIEDRA, PAPEL O TIJERA contra BOT -----------------
+            with tab_sub_ppt:
+                st.markdown("#### 🥊 Duelo Rápido: Piedra, Papel o Tijera")
+                _, ppt_mult = get_game_setting('ppt_multiplier', default_num=1.90)
+            
+                st.write(f"Desafía al Bot Alianza. Si ganas el duelo, te llevas tu apuesta multiplicada por **{format_num(ppt_mult)}x**. Si hay empate, se te devuelve tu apuesta.")
+            
+                col_ppt_l, col_ppt_r = st.columns([1, 1])
+                with col_ppt_l:
+                    chosen_move = st.radio("🥊 Selecciona tu movimiento de ataque:", ["🪨 Piedra", "📄 Papel", "✂️ Tijera"], horizontal=True, key="user_ppt_move_field")
+                    bet_amount = st.number_input("💵 Cantidad de Tokens SD a apostar en el duelo:", min_value=0.1, max_value=max(float(balance), 0.1), value=1.0, format="%.2f", key="user_ppt_bet_field")
+                with col_ppt_r:
+                    if st.button("🥊 Confirmar e Iniciar Duelo", key="play_ppt_btn"):
+                        if balance < bet_amount:
+                            st.error("⚠️ Saldo insuficiente para realizar esta apuesta.")
+                        else:
+                            with st.spinner("🥊 ¡Lanzando jugadas al aire... El bot está calculando su defensa!"):
+                                import time
+                                time.sleep(1.5)
+                            
+                                bot_choices = ["🪨 Piedra", "📄 Papel", "✂️ Tijera"]
+                                import random
+                                bot_move = random.choice(bot_choices)
+                            
+                                # Lógica del ganador
+                                result = "" # 'WIN', 'LOSE', 'DRAW'
+                                if chosen_move == bot_move:
+                                    result = "DRAW"
+                                elif (chosen_move == "🪨 Piedra" and bot_move == "✂️ Tijera") or                                  (chosen_move == "📄 Papel" and bot_move == "🪨 Piedra") or                                  (chosen_move == "✂️ Tijera" and bot_move == "📄 Papel"):
+                                    result = "WIN"
+                                else:
+                                    result = "LOSE"
+                                
+                                conn_p = get_db_connection()
+                                cursor_p = conn_p.cursor()
+                                try:
+                                    if result == "WIN":
+                                        won_amt = bet_amount * ppt_mult
+                                        net_win = won_amt - bet_amount
+                                    
+                                        # Descontar del admin, abonar al usuario
+                                        cursor_p.execute("UPDATE users SET balance = balance + ? WHERE wallet_code = ?", (net_win, st.session_state.wallet_code))
+                                        cursor_p.execute("UPDATE users SET balance = balance - ? WHERE wallet_code = '99999'", (net_win,))
+                                    
+                                        cursor_p.execute("""
+                                            INSERT INTO transactions (sender_code, receiver_code, amount)
+                                            VALUES ('SYSTEM_PPT_WIN', ?, ?)
+                                        """, (st.session_state.wallet_code, net_win))
+                                    
+                                        st.balloons()
+                                        st.success(f"🏆 <b>¡GANASTE EL DUELO!</b> Tu oponente lanzó <b>{bot_move}</b>. Has vencido con <b>{chosen_move}</b> y te has ganado <b>{format_num(won_amt)} SD</b>.")
+                                    elif result == "DRAW":
+                                        st.info(f"🤝 <b>¡HUBO UN EMPATE!</b> Tu oponente también lanzó <b>{bot_move}</b>. Se te reembolsan tus <b>{format_num(bet_amount)} SD</b> intactos.")
+                                    else:
+                                        # Descontar del usuario, abonar al admin
+                                        cursor_p.execute("UPDATE users SET balance = balance - ? WHERE wallet_code = ?", (bet_amount, st.session_state.wallet_code))
+                                        cursor_p.execute("UPDATE users SET balance = balance + ? WHERE wallet_code = '99999'", (bet_amount,))
+                                    
+                                        cursor_p.execute("""
+                                            INSERT INTO transactions (sender_code, receiver_code, amount)
+                                            VALUES (?, 'SYSTEM_PPT_LOSE', ?)
+                                        """, (st.session_state.wallet_code, bet_amount))
+                                    
+                                        st.error(f"💀 <b>¡HAS SIDO DERROTADO!</b> Tu oponente lanzó <b>{bot_move}</b> y venció a tu <b>{chosen_move}</b>. Perdiste <b>{format_num(bet_amount)} SD</b>.")
+                                    
+                                    conn_p.commit()
+                                    conn_p.close()
+                                    time.sleep(1.0)
+                                    st.rerun()
+                                except Exception as e:
+                                    conn_p.rollback()
+                                    conn_p.close()
+                                    st.error(f"Error procesando duelo: {str(e)}")
+
+            # ----------------- JUEGO 3: TRIVIA ALIANZA (Punto 5) -----------------
+            with tab_sub_trivia:
+                st.markdown("#### 🧠 El Desafío de Trivia Alianza")
+                trivia = get_active_trivia()
+            
+                if not trivia:
+                    st.info("No hay trivias activas publicadas por el administrador en este momento. Vuelve más tarde.")
+                else:
+                    st.markdown(f"""
+                    <div class="card" style="border-left: 4px solid #3b82f6;">
+                        <h4 style="color:#3b82f6; margin-top:0;">📝 Trivia ID #{trivia['id']}</h4>
+                        <p style="font-size:1.1rem; color:#ffffff; font-weight:bold; margin-bottom:15px;">{trivia['question']}</p>
+                        <p style="font-size:0.85rem; color:#a1a1aa; margin:0;">
+                            🎟️ <b>Costo de Entrada:</b> {format_num(trivia['entry_fee'])} SD | 🎁 <b>Premio de Acierto:</b> {format_num(trivia['prize_sd'])} SD
+                        </p>
+                    </div>
+                    """, unsafe_allow_html=True)
+                
+                    if has_user_answered_trivia(st.session_state.wallet_code, trivia['id']):
+                        st.warning("⚠️ <b>Participación Completada:</b> Ya has respondido a esta pregunta de trivia. Espera a que el administrador publique una nueva pregunta.")
+                    else:
+                        ans_options = {
+                            f"A) {trivia['option_a']}": "A",
+                            f"B) {trivia['option_b']}": "B",
+                            f"C) {trivia['option_c']}": "C"
+                        }
+                        user_ans_label = st.radio("🧠 Selecciona tu respuesta correcta:", list(ans_options.keys()), key=f"trivia_ans_radio_{trivia['id']}")
+                        user_ans_letter = ans_options[user_ans_label]
+                    
+                        if st.button("🧠 Registrar Mi Respuesta", key=f"submit_trivia_btn_{trivia['id']}"):
+                            success_t, msg_t = play_trivia(st.session_state.wallet_code, trivia['id'], user_ans_letter)
+                            if success_t:
+                                st.success(msg_t)
+                                st.rerun()
+                            else:
+                                st.error(msg_t)
+
+            # ----------------- JUEGO 4: PRONÓSTICOS DEPORTIVOS -----------------
+            with tab_sub_bets:
+                st.markdown("#### ⚽ Pronósticos Deportivos Alianza (La Polla)")
+                bet = get_active_sports_bet()
+            
+                if not bet:
+                    st.info("No hay partidos activos para pronósticos en este momento. ¡Pronto el administrador publicará un gran partido!")
+                else:
+                    st.markdown(f"""
+                    <div class="card" style="border-left: 4px solid #ef4444; background: linear-gradient(135deg, #0d0d11 0%, #200404 100%) !important;">
+                        <h4 style="color:#ef4444; margin-top:0;">⚽ PARTIDO EN VIVO</h4>
+                            <p style="font-size:1.3rem; color:#ffffff; font-weight:900; letter-spacing:0.02em; margin-bottom:12px; text-align:center;">{bet['match_name']}</p>
+                        <p style="font-size:0.85rem; color:#a1a1aa; margin:0; text-align:center;">
+                            🎟️ <b>Costo del Ticket:</b> {format_num(bet['ticket_cost'])} SD | 🏆 <b>Premio de Acierto:</b> {format_num(bet['prize_sd'])} SD
+                        </p>
+                    </div>
+                    """, unsafe_allow_html=True)
+                
+                    user_pred_saved = get_user_prediction(st.session_state.wallet_code, bet['id'])
+                    if user_pred_saved:
+                        st.success(f"🎫 **Ticket Adquirido:** Ya registraste tu pronóstico de este partido: <b>{user_pred_saved}</b>. Una vez finalizado el partido en la vida real, el administrador elegirá el resultado ganador y recibirás tu premio si acertaste.")
+                    else:
+                        st.write("<b>Escribe tu pronóstico para el partido:</b>", unsafe_allow_html=True)
+                        pred_opts = {
+                            "🏠 Ganador Local": "LOCAL",
+                            "🤝 Empate": "EMPATE",
+                            "🚀 Ganador Visitante": "VISITANTE"
+                        }
+                        user_pred_label = st.radio("Selecciona una opción:", list(pred_opts.keys()), key=f"sports_bet_radio_{bet['id']}", horizontal=True)
+                        user_pred_val = pred_opts[user_pred_label]
+                    
+                        if st.button("🎫 Comprar Ticket y Registrar Pronóstico", key=f"buy_ticket_bet_{bet['id']}"):
+                            success_b, msg_b = buy_sports_prediction(st.session_state.wallet_code, bet['id'], user_pred_val)
+                            if success_b:
+                                st.balloons()
+                                st.success(msg_b)
+                                st.rerun()
+                            else:
+                                st.error(msg_b)
+
+            # ----------------- JUEGO 5: SUBASTA DE CENTAVOS -----------------
+            with tab_sub_auc:
+                st.markdown("#### 🔨 Subasta de Centavos Express (Penny Auctions)")
+                auc = get_active_auction()
+            
+                if not auc:
+                    st.info("No hay subastas de productos activas en este momento.")
+                else:
+                    ends_time = datetime.strptime(auc["ends_at"], "%Y-%m-%d %H:%M:%S")
+                    now_time = datetime.utcnow()
+                    seconds_rem = max(int((ends_time - now_time).total_seconds()), 0)
+                
+                    # Formatear el mejor postor
+                    highest_bidder_disp = auc["highest_bidder"]
+                    if highest_bidder_disp == "99999":
+                        highest_bidder_disp = "Propietario (Admin)"
+                    elif highest_bidder_disp == st.session_state.wallet_code:
+                        highest_bidder_disp = "👑 ¡Tú eres el mejor postor!"
+                    else:
+                        highest_bidder_disp = f"Usuario {highest_bidder_disp}"
+                
+                    st.markdown(f"""
+                    <div class="card" style="border-left: 4px solid #ffd700;">
+                        <h4 style="color:#ffd700; margin-top:0;">🔨 Subasta Activa: {auc['item_name']}</h4>
+                        <p style="font-size:0.88rem; color:#e2e8f0; margin-top:2px;">{auc['description']}</p>
+                        <hr style="border-color:#ffd7001a; margin: 10px 0;">
+                        <p style="font-size:1.2rem; color:#10b981; font-weight:bold; margin:3px 0;"><b>Precio actual de compra:</b> {format_num(auc['current_price'])} SD</p>
+                        <p style="font-size:0.9rem; color:#ffffff; margin:3px 0;"><b>Líder de la Subasta:</b> {highest_bidder_disp}</p>
+                        <p style="font-size:0.85rem; color:#a1a1aa; margin:3px 0;"><b>Costo por Puja:</b> {format_num(auc['bid_fee_sd'])} SD | <b>Aumento del precio:</b> +{format_num(auc['bid_increment'])} SD</p>
+                    </div>
+                    """, unsafe_allow_html=True)
+                
+                    if seconds_rem <= 0:
+                        st.warning("⏱️ **Subasta Cerrada:** Se ha agotado el tiempo de puja de este artículo.")
+                        if auc["highest_bidder"] == st.session_state.wallet_code:
+                            st.success("🎉 ¡Ganaste la subasta! Puedes reclamar el PIN de tu premio de inmediato presionando el botón de abajo.")
+                            if st.button("🎁 Reclamar Premio Ganado", key=f"claim_auc_btn_{auc['id']}"):
+                                conn_c = get_db_connection()
+                                cursor_c = conn_c.cursor()
+                                try:
+                                    # Marcar como reclamado
+                                    cursor_c.execute("UPDATE penny_auctions SET status = 'CLAIMED' WHERE id = ?", (auc["id"],))
+                                    conn_c.commit()
+                                    conn_c.close()
+                                
+                                    # Entregar de forma ficticia
+                                    add_notification(st.session_state.wallet_code, f"🎁 <b>¡Premio de Subasta Entregado!</b> Has reclamado con éxito tu artículo: <b>{auc['item_name']}</b>. El administrador te enviará tu código PIN a tus notificaciones pronto.")
+                                    st.balloons()
+                                    st.success("¡Premio reclamado! Revisa tu buzón de notificaciones en los próximos minutos.")
+                                    st.rerun()
+                                except Exception as e:
+                                    conn_c.rollback()
+                                    conn_c.close()
+                                    st.error(str(e))
+                        else:
+                            st.info(f"El ganador definitivo de este artículo es el usuario <b>{auc['highest_bidder']}</b>.")
+                    else:
+                        # Mostrar cronómetro
+                        hours_r, remainder_r = divmod(seconds_rem, 3600)
+                        mins_r, secs_r = divmod(remainder_r, 60)
+                        time_str = f"⏳ <b>Tiempo Restante:</b> {hours_r:02d}h {mins_r:02d}m {secs_r:02d}s"
+                        st.markdown(f"<div style='font-size:1.15rem; color:#ff4d4d; font-weight:bold; margin-bottom:12px;'>{time_str}</div>", unsafe_allow_html=True)
+                    
+                        if st.button(f"🔨 Pujar (+{format_num(auc['bid_increment'])} SD)", key=f"place_bid_btn_{auc['id']}"):
+                            success_p_b, msg_p_b = place_penny_bid(st.session_state.wallet_code, auc["id"])
+                            if success_p_b:
+                                st.success(msg_p_b)
+                                st.rerun()
+                            else:
+                                st.error(msg_p_b)
+
+            # ----------------- JUEGO 6: RASPA Y GANA DIGITAL (Scratch Cards) -----------------
+            with tab_sub_scratch:
+                st.markdown("#### 🎟️ Tarjeta Raspa y Gana Digital (Scratch Cards)")
+                _, scratch_cost = get_game_setting('scratch_cost', default_num=0.5)
+                s_prizes_str, _ = get_game_setting('scratch_prizes', default_val='0.0,0.2,0.5,1.0,3.0,10.0')
+                s_probs_str, _ = get_game_setting('scratch_prob', default_val='50,25,15,7,2,1')
+            
+                s_prizes = [float(p) for p in s_prizes_str.split(',') if p]
+                s_probs = [int(p) for p in s_probs_str.split(',') if p]
+            
+                st.write(f"Adquiere una tarjeta virtual raspa y gana por solo **{format_num(scratch_cost)} SD**. Revela 3 casillas iguales para ganar hasta **{format_num(max(s_prizes))} SD**.")
+            
+                col_sc_l, col_sc_r = st.columns([1, 1])
+                with col_sc_l:
+                    st.markdown(f"""
+                    <div class="card" style="border-top: 3px solid #10b981; text-align:center;">
+                        <div style="font-size: 1.5rem; color:#10b981; font-weight:800;">ALIANZA SCRATCH</div>
+                            <p style="font-size:0.82rem; color:#a1a1aa; margin:5px 0;">¿Tendrás las tres coronas ganadoras de la suerte?</p>
+                            <div style="background-color:#0d0d11; border: 2px dashed #ffd70044; padding:15px; margin-top:10px; font-size:2.0rem; letter-spacing:0.3em; font-weight:bold; border-radius:6px; color:#5f5f6e;">❓ ❓ ❓</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                with col_sc_r:
+                    if st.button("🎟️ Comprar y Raspar Tarjeta", key="play_scratch_btn"):
+                        if balance < scratch_cost:
+                            st.error(f"⚠️ Saldo insuficiente para comprar la tarjeta. Cuesta {format_num(scratch_cost)} SD.")
+                        else:
+                            with st.spinner("⏳ Comprando tarjeta y revelando casillas protectoras..."):
+                                import time
+                                time.sleep(2.0)
+                            
+                                import random
+                                s_choices = list(range(len(s_prizes)))
+                                s_chosen_idx = random.choices(s_choices, weights=s_probs, k=1)[0]
+                                won_amt_s = s_prizes[s_chosen_idx]
+                            
+                                # Generar combinación visual de emojis
+                                winning_emojis = ["👑", "⭐", "💎", "🍎", "🔥", "🍀"]
+                                if won_amt_s > 0:
+                                    # 3 de un mismo tipo
+                                    matching_emoji = random.choice(winning_emojis)
+                                    display_emojis = f"{matching_emoji} {matching_emoji} {matching_emoji}"
+                                else:
+                                    # Diferentes
+                                    shuffled = list(winning_emojis)
+                                    random.shuffle(shuffled)
+                                    display_emojis = f"{shuffled[0]} {shuffled[1]} {shuffled[2]}"
+                                
+                                conn_sc = get_db_connection()
+                                cursor_sc = conn_sc.cursor()
+                                try:
+                                    # Registrar costos y cobros
+                                    cursor_sc.execute("UPDATE users SET balance = balance - ? WHERE wallet_code = ?", (scratch_cost, st.session_state.wallet_code))
+                                    cursor_sc.execute("UPDATE users SET balance = balance + ? WHERE wallet_code = ?", (won_amt_s, st.session_state.wallet_code))
+                                    cursor_sc.execute("UPDATE users SET balance = balance + ? WHERE wallet_code = '99999'", (scratch_cost - won_amt_s,))
+                                
+                                    cursor_sc.execute("""
+                                        INSERT INTO transactions (sender_code, receiver_code, amount)
+                                        VALUES (?, 'SYSTEM_SCRATCH_FEE', ?)
+                                    """, (st.session_state.wallet_code, scratch_cost))
+                                
+                                    if won_amt_s > 0:
+                                        cursor_sc.execute("""
+                                            INSERT INTO transactions (sender_code, receiver_code, amount)
+                                            VALUES ('SYSTEM_SCRATCH_REWARD', ?, ?)
+                                        """, (st.session_state.wallet_code, won_amt_s))
+                                    
+                                    conn_sc.commit()
+                                    conn_sc.close()
+                                
+                                    st.markdown(f"""
+                                    <div class="card" style="border:2px solid #ffd700; text-align:center; background:linear-gradient(135deg, #201a00 0%, #0d0d11 100%) !important;">
+                                        <div style="font-size:2.2rem; margin:10px 0; letter-spacing:0.2em;">{display_emojis}</div>
+                                    </div>
+                                    """, unsafe_allow_html=True)
+                                
+                                    if won_amt_s > scratch_cost:
+                                        st.balloons()
+                                        st.success(f"🎉 ¡Felicidades! Tres figuras idénticas coinciden. Has ganado un premio de <b>{format_num(won_amt_s)} SD</b>.")
+                                    elif won_amt_s > 0:
+                                        st.success(f"👍 ¡Buen intento! Obtuviste un premio menor de consolación de <b>{format_num(won_amt_s)} SD</b>.")
+                                    else:
+                                        st.warning("😢 No coincidieron las figuras. ¡Compra otra tarjeta y cambia tu suerte en el próximo raspadito!")
+                                    
+                                    time.sleep(1.0)
+                                    st.rerun()
+                                except Exception as e:
+                                    conn_sc.rollback()
+                                    conn_sc.close()
+                                    st.error(f"Error procesando raspa y gana: {str(e)}")
+
+            # ----------------- JUEGO 7: ALERTA DIARIA O CONSEJO CRIPTO -----------------
+            with tab_sub_tip:
+                st.markdown("#### 🔮 Alerta Diaria o Consejo Millonario Cripto")
+                _, tip_cost = get_game_setting('crypto_tip_cost', default_num=0.2)
+                tip_text, _ = get_game_setting('crypto_tip', default_val='🔑 Consejo del día no configurado todavía.')
+            
+                # Verificar si el usuario ya lo desbloqueó hoy
+                conn_u = get_db_connection()
+                cursor_u = conn_u.cursor()
+                cursor_u.execute("SELECT id FROM user_unlocked_tips WHERE user_code = ? AND DATE(unlocked_at) = DATE('now')", (st.session_state.wallet_code,))
+                is_unlocked = bool(cursor_u.fetchone())
+                conn_u.close()
+            
+                if is_unlocked:
+                    st.markdown(f"""
+                    <div class="card" style="border: 2px solid #ffd700; background: linear-gradient(135deg, #0d0d11 0%, #201a00 100%) !important; padding: 22px; text-align:center;">
+                        <h3 style="color:#ffd700; margin-top:0; font-family:serif;">🔮 CONSEJO MILLONARIO DESBLOQUEADO</h3>
+                        <p style="font-size:1.15rem; color:#ffffff; font-style:italic; line-height:1.6rem; font-family:serif; max-width:80%; margin: 15px auto;">
+                            "{tip_text}"
+                        </p>
+                        <span style="font-size:0.75rem; color:#10b981; font-weight:bold; letter-spacing:0.1em;">🔓 ACCESO COMPLETO DIARIO</span>
+                    </div>
+                    """, unsafe_allow_html=True)
+                else:
+                    st.markdown(f"""
+                    <div class="card" style="border: 1px dashed rgba(255,215,0,0.3); padding: 30px; text-align:center; background-color:#050507; filter: blur(0.3px);">
+                        <div style="font-size: 3.0rem; margin-bottom:12px; filter: grayscale(1);">🔒🔮🔒</div>
+                        <h4 style="color:#a1a1aa; margin-top:0;">Consejo Millonario Oculto</h4>
+                        <p style="font-size:0.9rem; color:#888899; max-width:60%; margin: 10px auto; line-height:1.3rem;">
+                            El administrador ha publicado un consejo financiero exclusivo para hoy. Desbloquéalo para acelerar tus ganancias de Alianza.
+                        </p>
+                        <span style="font-size:1.1rem; color:#ffd700; font-weight:800; display:block; margin: 15px 0;">Costo de Desbloqueo: {format_num(tip_cost)} SD</span>
+                    </div>
+                    """, unsafe_allow_html=True)
+                
+                    if st.button(f"🔓 Desbloquear Consejo con {format_num(tip_cost)} SD", key="unlock_tip_btn"):
+                        if balance < tip_cost:
+                            st.error(f"⚠️ Saldo insuficiente para desbloquear el consejo. Cuesta {format_num(tip_cost)} SD.")
+                        else:
+                            conn_un = get_db_connection()
+                            cursor_un = conn_un.cursor()
+                            try:
+                                # Cobrar coste
+                                cursor_un.execute("UPDATE users SET balance = balance - ? WHERE wallet_code = ?", (tip_cost, st.session_state.wallet_code))
+                                cursor_un.execute("UPDATE users SET balance = balance + ? WHERE wallet_code = '99999'", (tip_cost,))
+                            
+                                cursor_un.execute("""
+                                    INSERT INTO transactions (sender_code, receiver_code, amount)
+                                    VALUES (?, 'SYSTEM_TIP_UNLOCK', ?)
+                                """, (st.session_state.wallet_code, tip_cost))
+                            
+                                # Registrar desbloqueo
+                                cursor_un.execute("INSERT INTO user_unlocked_tips (user_code, tip_id) VALUES (?, 'daily_tip')", (st.session_state.wallet_code,))
+                            
+                                conn_un.commit()
+                                conn_un.close()
+                            
+                                st.balloons()
+                                st.success("¡Consejo desbloqueado con éxito!")
+                                st.rerun()
+                            except Exception as e:
+                                conn_un.rollback()
+                                conn_un.close()
+                                st.error(str(e))
 
     # --- SECCIÓN: COURIER Y CONDUCTORES (MENSAJERÍA Alianza) ---
-    elif choice == "🚚 Mensajería Alianza":
         st.markdown("<h1 class='golden-title'>🚚 Servicios de Mensajería y Móviles</h1>", unsafe_allow_html=True)
         st.write("Gestiona los pagos de envíos de encomiendas de forma directa y cancela tus cuotas semanales de móviles con descuentos especiales en tokens SD.")
         
@@ -4087,61 +5168,273 @@ else:
                         st.rerun()
 
         with tab_settings:
-            st.subheader("⚙️ Configuración Técnica del Token y Pasarela Nequi")
+            st.subheader("⚙️ Configuración y Edición General de la Aplicación")
+            st.write("Como Propietario de Alianza, tienes control total para editar precios, productos de la tienda, crear/resolver juegos, trivias, subastas y configurar los parámetros del token en tiempo real.")
             
-            # --- SECCIÓN ADICIONAL: EDITAR TIENDA ---
-            st.markdown("---")
-            st.subheader("🛍️ Editar Precios e Información de la Tienda")
-            st.write("Modifica el nombre, descripción y costo en tokens SIAD (SD) de las membresías y artículos que los usuarios compran en la tienda Alianza.")
+            # --- SUB-TABS DENTRO DEL PANEL DE CONFIGURACIÓN ---
+            tab_adm_store, tab_adm_trivia, tab_adm_sports, tab_adm_penny, tab_adm_games, tab_adm_token = st.tabs([
+                "🛍️ Editar Tienda (Alimentos/Pines)",
+                "🧠 Control Trivia",
+                "⚽ Control Pronósticos",
+                "🔨 Control Subastas",
+                "🎡 Configuración de Juegos",
+                "🪙 Parámetros Token y Nequi"
+            ])
             
-            # Cargar artículos de la tienda
-            conn_items = get_db_connection()
-            store_items_list = pd.read_sql_query("SELECT id, name, description, price_sd, item_type FROM store_items", conn_items)
-            conn_items.close()
-            
-            for idx_i, item_row in store_items_list.iterrows():
-                i_id = item_row['id']
-                i_name = item_row['name']
-                i_type = item_row['item_type']
-                i_price = float(item_row['price_sd'])
-                i_desc = item_row['description']
+            # 1. EDITAR TIENDA (Pines, Alimentos, Recargas)
+            with tab_adm_store:
+                st.subheader("🛍️ Editar Precios e Información de la Tienda")
+                st.write("Modifica el nombre, descripción, costo en tokens (SD) y tarifa de envío de alimentos de cualquier artículo de la tienda Alianza.")
                 
-                type_label = "🏆 Membresía VIP Alianza" if i_type == 'MEMBERSHIP' else "🎁 Tarjeta de Regalo / Pin"
-                with st.expander(f"✏️ Editar: {i_name} ({type_label})"):
-                    with st.form(f"edit_store_item_form_{i_id}"):
-                        edit_name = st.text_input("Nombre del Artículo", value=i_name)
-                        edit_desc = st.text_area("Descripción", value=i_desc, height=80)
-                        edit_price = st.number_input("Costo del Artículo (SD)", value=i_price, min_value=0.0001, format="%.4f")
-                        submit_item_edit = st.form_submit_button(f"Guardar Cambios de {i_name}")
-                        
-                        if submit_item_edit:
-                            if not edit_name.strip() or not edit_desc.strip():
-                                st.error("⚠️ El nombre y la descripción no pueden estar vacíos.")
-                            else:
-                                update_store_item_price(i_id, edit_price, edit_name, edit_desc)
-                                st.success(f"✅ ¡Se han guardado los cambios para '{edit_name}' con éxito!")
-                                st.rerun()
-            st.markdown("---")
-            
-            # Verificación explícita de seguridad: Sólo la cuenta de administrador principal (@admin o wallet_code 99999) puede editar el Nequi global de recepción de pagos.
-            is_admin_user = (st.session_state.username == 'admin' or st.session_state.wallet_code == '99999')
-            if not is_admin_user:
-                st.warning("⚠️ Solamente el usuario administrador principal (@admin) puede editar la configuración global de la plataforma y el número de Nequi oficial.")
-                st.info(f"<b>Nequi Oficial del Administrador para Recibir Pagos:</b> {token['nequi_number']}")
-            else:
-                st.write("Desde aquí personalizas las características de tu propia criptomoneda y el canal de pago de forma global.")
-                with st.form("settings_form"):
-                    new_name = st.text_input("Nombre de la Criptomoneda", value=token['name'])
-                    new_symbol = st.text_input("Símbolo del Token", value=token['symbol'], max_chars=10)
-                    new_contract = st.text_input("Dirección de Contrato (Smart Contract)", value=token['contract'])
-                    new_price = st.number_input("Valor en USD de cada Token (USD)", value=token['price_usd'], min_value=0.000001, format="%.6f", step=0.01)
-                    new_nequi = st.text_input("Número de Cuenta NEQUI Oficial para Recibir Pagos", value=token['nequi_number'])
-                    submit_s = st.form_submit_button("Guardar Configuración Técnica")
+                conn_items = get_db_connection()
+                # Cargar todos los artículos incluyendo delivery_fee_sd
+                store_items_list = pd.read_sql_query("SELECT id, name, description, price_sd, item_type, delivery_fee_sd FROM store_items", conn_items)
+                conn_items.close()
+                
+                for idx_i, item_row in store_items_list.iterrows():
+                    i_id = item_row['id']
+                    i_name = item_row['name']
+                    i_type = item_row['item_type']
+                    i_price = float(item_row['price_sd'])
+                    i_desc = item_row['description']
+                    i_deliv = float(item_row['delivery_fee_sd']) if item_row['delivery_fee_sd'] is not None else 0.0
                     
-                    if submit_s:
-                        if not (new_name and new_symbol and new_contract and new_nequi):
-                            st.error("Todos los campos de configuración son obligatorios.")
-                        else:
-                            update_token_settings(new_name, new_symbol, new_contract, new_price, new_nequi)
-                            st.success("¡Configuración general guardada con éxito!")
+                    # Labels according to type
+                    type_labels = {
+                        'MEMBERSHIP': "🏆 Membresía VIP Alianza",
+                        'GIFT_CARD': "🎁 Tarjeta de Regalo / Pin",
+                        'FOOD': "🍔 Alimento o Bebida Express",
+                        'CARRIER_RECHARGE': "📱 Recarga de Datos / Minutos"
+                    }
+                    type_label = type_labels.get(i_type, "🛒 Artículo General")
+                    
+                    with st.expander(f"✏️ Editar: {i_name} ({type_label})"):
+                        with st.form(f"edit_store_item_form_v2_{i_id}"):
+                            edit_name = st.text_input("Nombre del Artículo", value=i_name)
+                            edit_desc = st.text_area("Descripción", value=i_desc, height=80)
+                            edit_price = st.number_input("Costo del Artículo (SD)", value=i_price, min_value=0.0001, format="%.4f")
+                            
+                            # Conditionally show delivery fee if food
+                            edit_delivery = 0.0
+                            if i_type == 'FOOD':
+                                edit_delivery = st.number_input("Costo de Envío / Domicilio (SD)", value=i_deliv, min_value=0.0, format="%.2f")
+                                
+                            submit_item_edit = st.form_submit_button(f"Guardar Cambios de {i_name}")
+                            
+                            if submit_item_edit:
+                                if not edit_name.strip() or not edit_desc.strip():
+                                    st.error("⚠️ El nombre y la descripción no pueden estar vacíos.")
+                                else:
+                                    update_store_item_price(i_id, edit_price, edit_name, edit_desc, edit_delivery)
+                                    st.success(f"✅ ¡Se han guardado los cambios para '{edit_name}' con éxito!")
+                                    st.rerun()
+
+            # 2. CONTROL TRIVIA ALIANZA
+            with tab_adm_trivia:
+                st.subheader("🧠 Publicar y Configurar Trivia Alianza")
+                st.write("Modifica la trivia activa para que los usuarios respondan y ganen tokens.")
+                
+                curr_trivia = get_active_trivia()
+                
+                with st.form("admin_trivia_form"):
+                    t_question = st.text_input("Pregunta de la Trivia:", value=curr_trivia["question"] if curr_trivia else "¿De qué color es el logo de Binance?")
+                    t_opt_a = st.text_input("Opción A:", value=curr_trivia["option_a"] if curr_trivia else "Rojo")
+                    t_opt_b = st.text_input("Opción B:", value=curr_trivia["option_b"] if curr_trivia else "Amarillo y Negro")
+                    t_opt_c = st.text_input("Opción C:", value=curr_trivia["option_c"] if curr_trivia else "Verde")
+                    t_correct = st.selectbox("Opción Correcta:", ["A", "B", "C"], index=["A", "B", "C"].index(curr_trivia["correct_option"]) if curr_trivia else 1)
+                    t_fee = st.number_input("Costo de Entrada a la Trivia (SD):", value=float(curr_trivia["entry_fee"]) if curr_trivia else 0.50, min_value=0.0, format="%.2f")
+                    t_prize = st.number_input("Premio de la Trivia (SD):", value=float(curr_trivia["prize_sd"]) if curr_trivia else 1.50, min_value=0.0001, format="%.2f")
+                    
+                    submit_trivia_edit = st.form_submit_button("📢 Publicar / Actualizar Trivia Activa")
+                    
+                    if submit_trivia_edit:
+                        conn_t_up = get_db_connection()
+                        cursor_t_up = conn_t_up.cursor()
+                        # Desactivar trivias anteriores
+                        cursor_t_up.execute("UPDATE trivias SET active = 0")
+                        # Insertar nueva trivia activa
+                        cursor_t_up.execute("""
+                            INSERT INTO trivias (question, option_a, option_b, option_c, correct_option, entry_fee, prize_sd, active)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, 1)
+                        """, (t_question, t_opt_a, t_opt_b, t_opt_c, t_correct, t_fee, t_prize))
+                        conn_t_up.commit()
+                        conn_t_up.close()
+                        
+                        st.success("✅ ¡Se ha publicado la nueva trivia activa con éxito! Se han reiniciado las participaciones para esta nueva pregunta.")
+                        st.rerun()
+
+            # 3. CONTROL PRONÓSTICOS DEPORTIVOS (LA POLLA)
+            with tab_adm_sports:
+                st.subheader("⚽ Administrar Pronósticos Deportivos (La Polla)")
+                st.write("Establece el partido activo, el costo de participación y el premio. También puedes resolver el partido y pagar a los ganadores.")
+                
+                curr_bet = get_active_sports_bet()
+                
+                col_ab1, col_ab2 = st.columns(2)
+                with col_ab1:
+                    st.write("<b>📢 Publicar Nuevo Partido Activo:</b>", unsafe_allow_html=True)
+                    with st.form("admin_new_match_form"):
+                        m_name = st.text_input("Nombre del Partido (Ej. Colombia vs Brasil):", value=curr_bet["match_name"] if curr_bet else "Colombia vs Argentina")
+                        m_cost = st.number_input("Costo del Ticket de Pronóstico (SD):", value=float(curr_bet["ticket_cost"]) if curr_bet else 1.0, min_value=0.0, format="%.2f")
+                        m_prize = st.number_input("Premio SD por Acierto (SD):", value=float(curr_bet["prize_sd"]) if curr_bet else 3.0, min_value=0.0001, format="%.2f")
+                        submit_new_match = st.form_submit_button("⚽ Publicar Nuevo Partido (Cancela Anterior)")
+                        
+                        if submit_new_match:
+                            conn_m_up = get_db_connection()
+                            cursor_m_up = conn_m_up.cursor()
+                            # Cancelar/cerrar anteriores activos
+                            cursor_m_up.execute("UPDATE sports_bets SET status = 'CANCELLED' WHERE status = 'ACTIVE'")
+                            # Insertar nuevo partido activo
+                            cursor_m_up.execute("""
+                                INSERT INTO sports_bets (match_name, ticket_cost, prize_sd, status)
+                                VALUES (?, ?, ?, 'ACTIVE')
+                            """, (m_name, m_cost, m_prize))
+                            conn_m_up.commit()
+                            conn_m_up.close()
+                            st.success(f"✅ ¡Partido '{m_name}' publicado con éxito!")
                             st.rerun()
+                            
+                with col_ab2:
+                    st.write("<b>🏁 Resolver Partido Activo (Pagar Premios):</b>", unsafe_allow_html=True)
+                    if not curr_bet:
+                        st.info("No hay ningún partido activo para resolver.")
+                    else:
+                        st.warning(f"Partido a Resolver: {curr_bet['match_name']}")
+                        with st.form("admin_resolve_match_form"):
+                            winner_choice = st.selectbox("Selecciona la Opción Ganadora:", ["LOCAL", "EMPATE", "VISITANTE"])
+                            submit_resolve = st.form_submit_button("🏁 Confirmar Resultado y Pagar Ganadores")
+                            
+                            if submit_resolve:
+                                success_res, msg_res = resolve_sports_bet(curr_bet["id"], winner_choice)
+                                if success_res:
+                                    st.success(msg_res)
+                                    st.balloons()
+                                    st.rerun()
+                                else:
+                                    st.error(msg_res)
+
+            # 4. CONTROL SUBASTAS DE CENTAVOS
+            with tab_adm_penny:
+                st.subheader("🔨 Configurar Subasta de Centavos")
+                st.write("Configura el artículo en subasta, precio inicial, incrementos, costo de puja y el tiempo de expiración.")
+                
+                curr_auc = get_active_auction()
+                
+                with st.form("admin_auction_form"):
+                    a_item = st.text_input("Artículo de la Subasta:", value=curr_auc["item_name"] if curr_auc else "Netflix Premium 1 Mes")
+                    a_desc = st.text_area("Descripción del Artículo:", value=curr_auc["description"] if curr_auc else "Pin de entretenimiento digital")
+                    a_price = st.number_input("Precio Inicial de Subasta (SD):", value=float(curr_auc["current_price"]) if curr_auc else 1.0, min_value=0.0001, format="%.2f")
+                    a_increment = st.number_input("Incremento por puja (SD):", value=float(curr_auc["bid_increment"]) if curr_auc else 0.05, min_value=0.0001, format="%.4f")
+                    a_fee = st.number_input("Costo de tarifa por puja (SD):", value=float(curr_auc["bid_fee_sd"]) if curr_auc else 0.10, min_value=0.0001, format="%.4f")
+                    a_duration_mins = st.number_input("Duración de la Subasta en Minutos (desde ahora):", value=120, min_value=1)
+                    
+                    submit_auc_edit = st.form_submit_button("🔨 Publicar / Reiniciar Subasta Activa")
+                    
+                    if submit_auc_edit:
+                        conn_a_up = get_db_connection()
+                        cursor_a_up = conn_a_up.cursor()
+                        # Finalizar anteriores activos
+                        cursor_a_up.execute("UPDATE penny_auctions SET status = 'ENDED' WHERE status = 'ACTIVE'")
+                        # Calcular expiración
+                        ends_at_str = (datetime.utcnow() + timedelta(minutes=a_duration_mins)).strftime('%Y-%m-%d %H:%M:%S')
+                        # Insertar nueva
+                        cursor_a_up.execute("""
+                            INSERT INTO penny_auctions (item_name, description, current_price, highest_bidder, ends_at, bid_fee_sd, bid_increment, status)
+                            VALUES (?, ?, ?, '99999', ?, ?, ?, 'ACTIVE')
+                        """, (a_item, a_desc, a_price, ends_at_str, a_fee, a_increment))
+                        conn_a_up.commit()
+                        conn_a_up.close()
+                        
+                        st.success(f"✅ ¡Nueva subasta de '{a_item}' iniciada con éxito! Expira en {a_duration_mins} minutos.")
+                        st.rerun()
+
+            # 5. CONFIGURACIÓN DE JUEGOS (Ruleta, PPT, Raspa, Consejos)
+            with tab_adm_games:
+                st.subheader("🎡 Configuración Técnica de Ruleta, Duelos y Consejos")
+                st.write("Modifica el valor de las apuestas, multiplicadores de ganancias y probabilidades de los minijuegos interactivos de la Tienda.")
+                
+                # Cargar valores actuales
+                r_cost_text, r_cost = get_game_setting('ruleta_cost', default_num=1.0)
+                r_prizes, _ = get_game_setting('ruleta_prizes', default_val='0.1,0.5,1.0,2.0,5.0,0.0')
+                r_prob, _ = get_game_setting('ruleta_prob', default_val='20,30,25,15,5,5')
+                
+                _, p_mult = get_game_setting('ppt_multiplier', default_num=1.90)
+                
+                _, s_cost = get_game_setting('scratch_cost', default_num=0.5)
+                s_prizes, _ = get_game_setting('scratch_prizes', default_val='0.0,0.2,0.5,1.0,3.0,10.0')
+                s_prob, _ = get_game_setting('scratch_prob', default_val='50,25,15,7,2,1')
+                
+                _, tip_cost = get_game_setting('crypto_tip_cost', default_num=0.2)
+                tip_text, _ = get_game_setting('crypto_tip', default_val='')
+                
+                with st.form("admin_games_config_form"):
+                    col_cg1, col_cg2 = st.columns(2)
+                    with col_cg1:
+                        st.write("<b>🎡 Parámetros de la Ruleta (Lucky Spin):</b>", unsafe_allow_html=True)
+                        new_r_cost = st.number_input("Costo de Giro de Ruleta (SD):", value=float(r_cost), min_value=0.0, format="%.2f")
+                        new_r_prizes = st.text_input("Premios de la Ruleta (6 valores separados por comas):", value=r_prizes)
+                        new_r_prob = st.text_input("Probabilidades de la Ruleta (6 valores separados por comas, deben sumar 100):", value=r_prob)
+                        
+                        st.write("<b>🥊 Parámetros Piedra, Papel o Tijera (PPT):</b>", unsafe_allow_html=True)
+                        new_p_mult = st.number_input("Multiplicador de Ganancia de PPT (Ej: 1.90):", value=float(p_mult), min_value=1.0, max_value=3.0, format="%.2f")
+                        
+                        st.write("<b>🔮 Parámetros de Alerta Cripto / Consejo del Día:</b>", unsafe_allow_html=True)
+                        new_tip_cost = st.number_input("Costo para desbloquear el Consejo Cripto (SD):", value=float(tip_cost), min_value=0.0, format="%.2f")
+                        new_tip_text = st.text_area("Contenido del Consejo / Alerta:", value=tip_text, height=80)
+                        
+                    with col_cg2:
+                        st.write("<b>🎟️ Parámetros Raspa y Gana (Scratch Cards):</b>", unsafe_allow_html=True)
+                        new_s_cost = st.number_input("Costo de Tarjeta Raspa y Gana (SD):", value=float(s_cost), min_value=0.0, format="%.2f")
+                        new_s_prizes = st.text_input("Premios Raspa y Gana (6 valores separados por comas):", value=s_prizes)
+                        new_s_prob = st.text_input("Probabilidades Raspa y Gana (6 valores separados por comas, deben sumar 100):", value=s_prob)
+                        
+                    submit_games_config = st.form_submit_button("🎡 Guardar Ajustes Generales de Juegos")
+                    
+                    if submit_games_config:
+                        # Validaciones rápidas
+                        r_probs_chk = [int(x) for x in new_r_prob.split(',') if x]
+                        s_probs_chk = [int(x) for x in new_s_prob.split(',') if x]
+                        
+                        if sum(r_probs_chk) != 100 or sum(s_probs_chk) != 100:
+                            st.error("⚠️ Las probabilidades de la Ruleta y del Raspa y Gana deben sumar exactamente 100.")
+                        elif len(new_r_prizes.split(',')) != 6 or len(new_s_prizes.split(',')) != 6:
+                            st.error("⚠️ Debes ingresar exactamente 6 valores de premios para la Ruleta y para el Raspa y Gana.")
+                        else:
+                            update_game_setting('ruleta_cost', '', new_r_cost)
+                            update_game_setting('ruleta_prizes', new_r_prizes, 0.0)
+                            update_game_setting('ruleta_prob', new_r_prob, 0.0)
+                            update_game_setting('ppt_multiplier', '', new_p_mult)
+                            update_game_setting('scratch_cost', '', new_s_cost)
+                            update_game_setting('scratch_prizes', new_s_prizes, 0.0)
+                            update_game_setting('scratch_prob', new_s_prob, 0.0)
+                            update_game_setting('crypto_tip_cost', '', new_tip_cost)
+                            update_game_setting('crypto_tip', new_tip_text, 0.0)
+                            
+                            st.success("✅ ¡Ajustes generales de los juegos guardados con éxito!")
+                            st.rerun()
+
+            # 6. CONFIGURACIÓN DEL TOKEN Y NEQUI (Muelle Original)
+            with tab_adm_token:
+                st.subheader("⚙️ Parámetros Cripto y Cuenta Madre")
+                
+                is_admin_user = (st.session_state.username == 'admin' or st.session_state.wallet_code == '99999')
+                if not is_admin_user:
+                    st.warning("⚠️ Solamente el usuario administrador principal (@admin) puede editar la configuración global de la plataforma y el número de Nequi oficial.")
+                    st.info(f"<b>Nequi Oficial del Administrador para Recibir Pagos:</b> {token['nequi_number']}")
+                else:
+                    st.write("Desde aquí personalizas las características de tu propia criptomoneda y el canal de pago de forma global.")
+                    with st.form("settings_form"):
+                        new_name = st.text_input("Nombre de la Criptomoneda", value=token['name'])
+                        new_symbol = st.text_input("Símbolo del Token", value=token['symbol'], max_chars=10)
+                        new_contract = st.text_input("Dirección de Contrato (Smart Contract)", value=token['contract'])
+                        new_price = st.number_input("Valor en USD de cada Token (USD)", value=token['price_usd'], min_value=0.000001, format="%.6f", step=0.01)
+                        new_nequi = st.text_input("Número de Cuenta NEQUI Oficial para Recibir Pagos", value=token['nequi_number'])
+                        submit_s = st.form_submit_button("Guardar Configuración Técnica")
+                        
+                        if submit_s:
+                            if not (new_name and new_symbol and new_contract and new_nequi):
+                                st.error("Todos los campos de configuración son obligatorios.")
+                            else:
+                                update_token_settings(new_name, new_symbol, new_contract, new_price, new_nequi)
+                                st.success("¡Configuración general guardada con éxito!")
+                                st.rerun()
