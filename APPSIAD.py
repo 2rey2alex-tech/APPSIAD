@@ -1697,7 +1697,7 @@ st.markdown("""
         display: none !important;
     }
 
-    /* CONVERTIR MENÚ EN BOTONES/CUADROS GRANDES DE NAVEGACIÓN (TIPO CERRAR SESIÓN PERO AZUL/DORADO Y EFECTO BLOB) */
+    /* CONVERTIR MENÚ DE NAVEGACIÓN EN BOTONES GRANDES (CUADROS/TARJETAS FÍSICAS IDÉNTICAS AL BOTÓN DE CERRAR SESIÓN) */
     div[data-testid="stSidebar"] div[data-testid="stRadio"] > label {
         color: #ffd700 !important; /* Título en Amarillo Dorado */
         font-size: 1.15rem !important;
@@ -1712,66 +1712,64 @@ st.markdown("""
     }
 
     div[data-testid="stSidebar"] div[data-testid="stRadio"] [role="radiogroup"] label {
-        padding: 14px 12px !important; /* Más grandes, amplios y cómodos */
-        min-height: 56px !important; /* Altura ideal de botón táctil premium */
-        background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%) !important; /* Fondo tipo botón azul oscuro/slate */
+        padding: 22px 14px !important; /* Cuadros mucho más grandes y cómodos, facilísimos de presionar */
+        min-height: 80px !important; /* Altura ideal de cuadro táctil premium */
+        background: #0d0d11 !important; /* Fondo tipo botón negro oscuro premium de base */
         border: 2px solid #ffd70088 !important; /* Borde dorado sólido como el botón de Cerrar Sesión */
-        border-radius: 8px !important; /* Bordes redondeados de botón */
+        border-radius: 6px !important; /* Esquinas como el botón de Cerrar Sesión */
         width: 100% !important; /* Cubre todo el ancho del sidebar */
         display: flex !important;
         justify-content: center !important; /* Centrado absoluto del texto */
         align-items: center !important;
         cursor: pointer !important;
         margin: 0 !important;
-        box-shadow: 0 4px 10px rgba(0, 0, 0, 0.4) !important; /* Sombra tridimensional */
-        transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
+        box-shadow: 0 5px 12px rgba(0, 0, 0, 0.5) !important; /* Sombra tridimensional real */
+        transition: all 0.15s ease-in-out !important;
     }
 
-    /* Separación entre botones independientes */
+    /* Separación amplia entre cuadros independientes */
     div[data-testid="stSidebar"] div[data-testid="stRadio"] [role="radiogroup"] > div {
-        margin-bottom: 14px !important; /* Separación amplia para diseño limpio */
+        margin-bottom: 18px !important; /* Amplia separación para diseño ultra limpio y fácil de tocar */
     }
 
-    /* Efecto Hover: Brillo, elevación y borde blanco */
+    /* Efecto Hover: Brillo dorado completo */
     div[data-testid="stSidebar"] div[data-testid="stRadio"] [role="radiogroup"] label:hover {
-        border-color: #ffffff !important; /* El borde brilla en blanco */
-        background: linear-gradient(135deg, #1e3a8a 0%, #1e40af 100%) !important; /* Azul más vivo */
-        box-shadow: 0 6px 18px rgba(30, 64, 175, 0.5) !important; /* Glow azul */
-        transform: translateY(-2px) !important; /* Elevación física */
+        border-color: #ffd700 !important; /* El borde brilla dorado full */
+        background: #161620 !important; /* Brillo sutil de fondo */
+        box-shadow: 0 6px 16px rgba(255, 215, 0, 0.15) !important;
+        transform: translateY(-2px) !important; /* Elevación física de botón */
     }
 
-    /* EFECTO CLICK ELÁSTICO (BLOB / BURBUJA LÍQUIDA AL PRESIONAR) */
+    /* EFECTO CLICK ELÁSTICO (AL PRESIONAR SE HUNDE DE FORMA FÍSICA Y REALISTA) */
     div[data-testid="stSidebar"] div[data-testid="stRadio"] [role="radiogroup"] label:active {
-        transform: scale(0.91) translateY(2px) !important; /* Se encoge y baja en el click */
-        border-radius: 18px !important; /* Se deforma como una burbuja/blob líquido */
-        border-color: #ffffff !important; /* El borde destella blanco */
-        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.6) !important;
-        transition: transform 0.05s ease-out, border-radius 0.05s ease-out !important;
+        transform: scale(0.94) translateY(3px) !important; /* Se hunde de verdad al presionarlo */
+        border-color: #ffffff !important; /* El borde destella en blanco al presionar */
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.7) !important;
     }
 
-    /* Texto súper claro, grande y legible dentro de cada botón */
+    /* Texto súper claro, grande e impactante dentro de cada cuadro */
     div[data-testid="stSidebar"] div[data-testid="stRadio"] [role="radiogroup"] label [data-testid="stMarkdownContainer"] p {
-        font-size: 1.12rem !important; /* Letra más grande y legible */
-        font-weight: 850 !important; /* Extra grueso de alta visibilidad */
-        color: #ffffff !important; /* Color blanco de base */
+        font-size: 1.15rem !important; /* Letra extra grande para lectura súper cómoda */
+        font-weight: 850 !important; /* Estilo extra grueso de alta visibilidad */
+        color: #ffffff !important; /* Texto blanco en reposo */
         text-align: center !important;
         width: 100% !important;
-        letter-spacing: 0.03em !important;
+        letter-spacing: 0.04em !important;
         margin: 0 !important;
-        text-transform: capitalize !important;
+        text-transform: uppercase !important; /* Todo en mayúsculas estilo botón físico de acción */
     }
 
-    /* CUANDO EL BOTÓN ESTÁ SELECCIONADO (ESTADO ACTIVO DE LA VENTANA) */
+    /* CUANDO UN CUADRO ESTÁ ACTIVO/SELECCIONADO: IDÉNTICO AL BOTÓN DE CERRAR SESIÓN (Fondo Verde Cripto + Borde Dorado) */
     div[data-testid="stSidebar"] div[data-testid="stRadio"] [role="radiogroup"] label:has(input[type="radio"]:checked) {
-        border-color: #ffd700 !important; /* Borde dorado brillante */
-        border-width: 2.5px !important;
-        background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%) !important; /* Degradado azul zafiro premium */
-        box-shadow: 0 6px 20px rgba(37, 99, 235, 0.5) !important; /* Brillo azul */
+        background: #10b981 !important; /* Verde cripto esmeralda exacto de Cerrar Sesión */
+        border: 2px solid #ffd700 !important; /* Borde dorado sólido brillante */
+        box-shadow: 0 6px 20px rgba(16, 185, 129, 0.4) !important; /* Glow verde cripto */
     }
 
-    /* Color de texto dorado cuando el botón está seleccionado/activo */
+    /* Texto de color negro de alto contraste cuando el botón está activo/seleccionado */
     div[data-testid="stSidebar"] div[data-testid="stRadio"] [role="radiogroup"] label:has(input[type="radio"]:checked) [data-testid="stMarkdownContainer"] p {
-        color: #ffd700 !important; /* Texto en amarillo dorado para resaltar la ventana activa */
+        color: #000000 !important; /* Texto negro para contraste espectacular sobre verde cripto */
+        font-weight: 900 !important;
     }
 
     </style>
