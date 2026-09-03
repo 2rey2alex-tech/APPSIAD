@@ -18,7 +18,7 @@ except ImportError:
 
 # Configuración de página de Streamlit
 st.set_page_config(
-    page_title="Alianza CryptoWallet v52",
+    page_title="Alianza CryptoWallet v53",
     page_icon="💼",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -2185,7 +2185,7 @@ st.markdown(f"""
 
 if not st.session_state.logged_in:
     st.sidebar.title("🔐 Alianza CryptoWallet")
-    st.sidebar.markdown("<div style='background-color: #1e293b; padding: 6px 12px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 15px; text-align: center;'><span style='color: #ffd700; font-size: 0.85rem; font-weight: bold;'>🚀 Versión de la App: v52</span></div>", unsafe_allow_html=True)
+    st.sidebar.markdown("<div style='background-color: #1e293b; padding: 6px 12px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 15px; text-align: center;'><span style='color: #ffd700; font-size: 0.85rem; font-weight: bold;'>🚀 Versión de la App: v53</span></div>", unsafe_allow_html=True)
     menu = st.sidebar.selectbox("Seleccione una opción", ["Iniciar Sesión", "Registrarse"])
     
     if menu == "Iniciar Sesión":
@@ -2253,7 +2253,7 @@ if not st.session_state.logged_in:
 else:
     # Sidebar de usuario conectado con toques dorados
     st.sidebar.markdown(f"<h2 class='golden-title'>👋 {st.session_state.fullname}</h2>", unsafe_allow_html=True)
-    st.sidebar.markdown("<div style='background-color: #1e293b; padding: 6px 12px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 15px; text-align: center;'><span style='color: #ffd700; font-size: 0.85rem; font-weight: bold;'>🚀 Versión de la App: v52</span></div>", unsafe_allow_html=True)
+    st.sidebar.markdown("<div style='background-color: #1e293b; padding: 6px 12px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 15px; text-align: center;'><span style='color: #ffd700; font-size: 0.85rem; font-weight: bold;'>🚀 Versión de la App: v53</span></div>", unsafe_allow_html=True)
     st.sidebar.markdown(f"**Billetera ID (Código):** `{st.session_state.wallet_code}`")
     
     # Obtener el número de notificaciones pendientes
@@ -2266,10 +2266,14 @@ else:
 
     # Sincronización automática de saldo con la Blockchain (Binance Smart Chain) si tiene billetera registrada
     user_bsc_wallet = get_user_bsc_address(st.session_state.wallet_code)
-    if user_bsc_wallet:
+    if "sync_blockchain" not in st.session_state:
+        st.session_state.sync_blockchain = True
+        
+    if user_bsc_wallet and st.session_state.sync_blockchain:
         blockchain_balance = fetch_bep20_balance_rpc(user_bsc_wallet, token['contract'])
-        # Actualizar SQLite local para mantener coherencia en swaps, cuotas y tienda
-        update_user_balance_and_cop(st.session_state.wallet_code, blockchain_balance, balance_cop_user)
+        # NOTA: Para permitir desincronizar la billetera y mantener el saldo local intacto en SQLite,
+        # NO sobrescribimos permanentemente la base de datos al sincronizar. Esto permite al usuario
+        # "apagar" la sincronización y recuperar su saldo local original de la base de datos de la app.
         balance = blockchain_balance
     
     # Cálculos de balance
@@ -2324,7 +2328,22 @@ else:
         if not user_bsc_wallet:
             st.warning("⚠️ **Sincronización Blockchain Inactiva:** No has configurado tu dirección de billetera real (BSC) en tu Perfil. Tu saldo actual es local. Vincula tu billetera MetaMask/Trust Wallet en **👤 Mi Perfil** para operar con tus tokens reales.")
         else:
-            st.success(f"🔗 **Blockchain Sincronizada:** Conectado con éxito a Binance Smart Chain. Tu saldo real de tokens BEP-20 es de **{format_num(balance)} {token['symbol']}**.")
+            if st.session_state.sync_blockchain:
+                col_banner, col_btn = st.columns([4, 1])
+                with col_banner:
+                    st.success(f"🔗 **Blockchain Sincronizada:** Conectado con éxito a Binance Smart Chain. Tu saldo real de tokens BEP-20 es de **{format_num(balance)} {token['symbol']}**.")
+                with col_btn:
+                    if st.button("❌ Desconectar", key="btn_desync_blockchain", help="Muestra el saldo local de la base de datos de la app"):
+                        st.session_state.sync_blockchain = False
+                        st.rerun()
+            else:
+                col_banner, col_btn = st.columns([4, 1])
+                with col_banner:
+                    st.info(f"💾 **Billetera Desconectada (Modo Local):** Mostrando los saldos locales de la base de datos de la aplicación.")
+                with col_btn:
+                    if st.button("🔗 Sincronizar", key="btn_sync_blockchain", help="Sincroniza y muestra tu saldo real de tokens BEP-20 de MetaMask"):
+                        st.session_state.sync_blockchain = True
+                        st.rerun()
 
         # Muestra del balance personal
         st.subheader("Balance de tu Cuenta")
@@ -2721,7 +2740,7 @@ else:
                 if "sim_usdt" not in st.session_state:
                     st.session_state.sim_usdt = 150.00
                     
-                is_web3_active = bool(user_bsc_wallet and user_bsc_wallet.strip().startswith("0x"))
+                is_web3_active = bool(user_bsc_wallet and user_bsc_wallet.strip().startswith("0x") and st.session_state.get("sync_blockchain", True))
                 
                 if is_web3_active:
                     user_bsc_wallet = user_bsc_wallet.strip()
