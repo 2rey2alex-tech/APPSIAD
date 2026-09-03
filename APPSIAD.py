@@ -6,6 +6,7 @@ import pandas as pd
 import numpy as np
 import plotly.express as px
 import requests
+import textwrap
 VIP_BADGE_B64 = "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"
 
 from datetime import datetime, timedelta
@@ -18,7 +19,7 @@ except ImportError:
 
 # Configuración de página de Streamlit
 st.set_page_config(
-    page_title="Alianza CryptoWallet v57",
+    page_title="Alianza CryptoWallet v58",
     page_icon="💼",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -2757,7 +2758,7 @@ st.markdown(f"""
 
 if not st.session_state.logged_in:
     st.sidebar.title("🔐 Alianza CryptoWallet")
-    st.sidebar.markdown("<div style='background-color: #1e293b; padding: 6px 12px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 15px; text-align: center;'><span style='color: #ffd700; font-size: 0.85rem; font-weight: bold;'>🚀 Versión de la App: v57</span></div>", unsafe_allow_html=True)
+    st.sidebar.markdown("<div style='background-color: #1e293b; padding: 6px 12px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 15px; text-align: center;'><span style='color: #ffd700; font-size: 0.85rem; font-weight: bold;'>🚀 Versión de la App: v58</span></div>", unsafe_allow_html=True)
     menu = st.sidebar.selectbox("Seleccione una opción", ["Iniciar Sesión", "Registrarse"])
     
     if menu == "Iniciar Sesión":
@@ -2825,7 +2826,7 @@ if not st.session_state.logged_in:
 else:
     # Sidebar de usuario conectado con toques dorados
     st.sidebar.markdown(f"<h2 class='golden-title'>👋 {st.session_state.fullname}</h2>", unsafe_allow_html=True)
-    st.sidebar.markdown("<div style='background-color: #1e293b; padding: 6px 12px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 15px; text-align: center;'><span style='color: #ffd700; font-size: 0.85rem; font-weight: bold;'>🚀 Versión de la App: v57</span></div>", unsafe_allow_html=True)
+    st.sidebar.markdown("<div style='background-color: #1e293b; padding: 6px 12px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 15px; text-align: center;'><span style='color: #ffd700; font-size: 0.85rem; font-weight: bold;'>🚀 Versión de la App: v58</span></div>", unsafe_allow_html=True)
     st.sidebar.markdown(f"**Billetera ID (Código):** `{st.session_state.wallet_code}`")
     
     # Obtener el número de notificaciones pendientes
@@ -3898,7 +3899,7 @@ else:
             
                 col_spin_l, col_spin_r = st.columns([1, 1])
                 with col_spin_l:
-                    st.markdown(f"""
+                    st.markdown(textwrap.dedent(f"""
                     <div class="card" style="border-left: 4px solid #ffd700;">
                         <h5 style="color:#ffd700; margin-top:0;">⚡ Multiplica tus Monedas</h5>
                         <p style="font-size:0.9rem; color:#ffffff;">Girar la ruleta tiene un costo de <b>{format_num(spin_cost)} SD</b>. Los premios configurados por el administrador hoy son:</p>
@@ -3908,7 +3909,7 @@ else:
                             <li>💀 Casilla perder: 0 SD</li>
                         </ul>
                     </div>
-                    """, unsafe_allow_html=True)
+                    """), unsafe_allow_html=True)
                 with col_spin_r:
                     if st.button("🎡 Girar Ruleta Ahora", key="play_spin_btn"):
                         # Verificar saldo
@@ -4059,7 +4060,7 @@ else:
                 if not trivia:
                     st.info("No hay trivias activas publicadas por el administrador en este momento. Vuelve más tarde.")
                 else:
-                    st.markdown(f"""
+                    st.markdown(textwrap.dedent(f"""
                     <div class="card" style="border-left: 4px solid #3b82f6;">
                         <h4 style="color:#3b82f6; margin-top:0;">📝 Trivia ID #{trivia['id']}</h4>
                         <p style="font-size:1.1rem; color:#ffffff; font-weight:bold; margin-bottom:15px;">{trivia['question']}</p>
@@ -4067,7 +4068,7 @@ else:
                             🎟️ <b>Costo de Entrada:</b> {format_num(trivia['entry_fee'])} SD | 🎁 <b>Premio de Acierto:</b> {format_num(trivia['prize_sd'])} SD
                         </p>
                     </div>
-                    """, unsafe_allow_html=True)
+                    """), unsafe_allow_html=True)
                 
                     if has_user_answered_trivia(st.session_state.wallet_code, trivia['id']):
                         st.warning("⚠️ <b>Participación Completada:</b> Ya has respondido a esta pregunta de trivia. Espera a que el administrador publique una nueva pregunta.")
@@ -4103,7 +4104,7 @@ else:
                 if not bet:
                     st.info("No hay partidos activos para pronósticos en este momento. ¡Pronto el administrador publicará un gran partido!")
                 else:
-                    st.markdown(f"""
+                    st.markdown(textwrap.dedent(f"""
                     <div class="card" style="border-left: 4px solid #ef4444; background: linear-gradient(135deg, #0d0d11 0%, #200404 100%) !important; padding: 20px;">
                         <h4 style="color:#ef4444; margin-top:0; text-align:center; font-weight:800; text-transform:uppercase; letter-spacing:0.05em;">⚽ PRONÓSTICOS DEPORTIVOS (LA POLLA ALIANZA)</h4>
                         
@@ -4133,7 +4134,7 @@ else:
                             🎟️ <b>Costo del Ticket:</b> {format_num(bet['ticket_cost'])} SD | 🏆 <b>Premio de Acierto:</b> {format_num(bet['prize_sd'])} SD
                         </p>
                     </div>
-                    """, unsafe_allow_html=True)
+                    """), unsafe_allow_html=True)
                 
                     user_pred_saved = get_user_prediction(st.session_state.wallet_code, bet['id'])
                     if user_pred_saved:
@@ -4178,7 +4179,7 @@ else:
                     else:
                         highest_bidder_disp = f"Usuario {highest_bidder_disp}"
                 
-                    st.markdown(f"""
+                    st.markdown(textwrap.dedent(f"""
                     <div class="card" style="border-left: 4px solid #ffd700;">
                         <h4 style="color:#ffd700; margin-top:0;">🔨 Subasta Activa: {auc['item_name']}</h4>
                         <p style="font-size:0.88rem; color:#e2e8f0; margin-top:2px;">{auc['description']}</p>
@@ -4187,7 +4188,7 @@ else:
                         <p style="font-size:0.9rem; color:#ffffff; margin:3px 0;"><b>Líder de la Subasta:</b> {highest_bidder_disp}</p>
                         <p style="font-size:0.85rem; color:#a1a1aa; margin:3px 0;"><b>Costo por Puja:</b> {format_num(auc['bid_fee_sd'])} SD | <b>Aumento del precio:</b> +{format_num(auc['bid_increment'])} SD</p>
                     </div>
-                    """, unsafe_allow_html=True)
+                    """), unsafe_allow_html=True)
                 
                     if seconds_rem <= 0:
                         st.warning("⏱️ **Subasta Cerrada:** Se ha agotado el tiempo de puja de este artículo.")
@@ -4271,21 +4272,21 @@ else:
                     if st.session_state.scratch_game_res:
                         res_data = st.session_state.scratch_game_res
                         border_clr = "#10b981" if res_data["won_amt"] > 0 else "#ef4444"
-                        st.markdown(f"""
+                        st.markdown(textwrap.dedent(f"""
                         <div class="card" style="border: 2px solid {border_clr}; text-align:center; background: linear-gradient(135deg, #0d0d11 0%, #15151e 100%) !important;">
                             <div style="font-size: 1.5rem; color:#ffd700; font-weight:800;">ALIANZA SCRATCH</div>
                             <p style="font-size:0.82rem; color:#a1a1aa; margin:5px 0;">¡Tarjeta raspada!</p>
                             <div style="background-color:#050507; border: 2px solid {border_clr}; padding:15px; margin-top:10px; font-size:2.2rem; letter-spacing:0.15em; font-weight:bold; border-radius:6px; color:#ffffff;">{res_data["emojis"]}</div>
                         </div>
-                        """, unsafe_allow_html=True)
+                        """), unsafe_allow_html=True)
                     else:
-                        st.markdown(f"""
+                        st.markdown(textwrap.dedent(f"""
                         <div class="card" style="border-top: 3px solid #10b981; text-align:center;">
                             <div style="font-size: 1.5rem; color:#10b981; font-weight:800;">ALIANZA SCRATCH</div>
                             <p style="font-size:0.82rem; color:#a1a1aa; margin:5px 0;">¿Tendrás las tres coronas ganadoras de la suerte?</p>
                             <div style="background-color:#0d0d11; border: 2px dashed #ffd70044; padding:15px; margin-top:10px; font-size:2.0rem; letter-spacing:0.3em; font-weight:bold; border-radius:6px; color:#5f5f6e;">❓ ❓ ❓</div>
                         </div>
-                        """, unsafe_allow_html=True)
+                        """), unsafe_allow_html=True)
                 with col_sc_r:
                     if st.button("🎟️ Comprar y Raspar Tarjeta", key="play_scratch_btn"):
                         if balance_db < scratch_cost:
@@ -4370,7 +4371,7 @@ else:
                 conn_u.close()
             
                 if is_unlocked:
-                    st.markdown(f"""
+                    st.markdown(textwrap.dedent(f"""
                     <div class="card" style="border: 2px solid #ffd700; background: linear-gradient(135deg, #0d0d11 0%, #201a00 100%) !important; padding: 22px; text-align:center;">
                         <h3 style="color:#ffd700; margin-top:0; font-family:serif;">🔮 CONSEJO MILLONARIO DESBLOQUEADO</h3>
                         <p style="font-size:1.15rem; color:#ffffff; font-style:italic; line-height:1.6rem; font-family:serif; max-width:80%; margin: 15px auto;">
@@ -4378,9 +4379,9 @@ else:
                         </p>
                         <span style="font-size:0.75rem; color:#10b981; font-weight:bold; letter-spacing:0.1em;">🔓 ACCESO COMPLETO DIARIO</span>
                     </div>
-                    """, unsafe_allow_html=True)
+                    """), unsafe_allow_html=True)
                 else:
-                    st.markdown(f"""
+                    st.markdown(textwrap.dedent(f"""
                     <div class="card" style="border: 1px dashed rgba(255,215,0,0.3); padding: 30px; text-align:center; background-color:#050507; filter: blur(0.3px);">
                         <div style="font-size: 3.0rem; margin-bottom:12px; filter: grayscale(1);">🔒🔮🔒</div>
                         <h4 style="color:#a1a1aa; margin-top:0;">Consejo Millonario Oculto</h4>
@@ -4389,7 +4390,7 @@ else:
                         </p>
                         <span style="font-size:1.1rem; color:#ffd700; font-weight:800; display:block; margin: 15px 0;">Costo de Desbloqueo: {format_num(tip_cost)} SD</span>
                     </div>
-                    """, unsafe_allow_html=True)
+                    """), unsafe_allow_html=True)
                 
                     if st.button(f"🔓 Desbloquear Consejo con {format_num(tip_cost)} SD", key="unlock_tip_btn"):
                         if balance_db < tip_cost:
