@@ -18,7 +18,7 @@ except ImportError:
 
 # Configuración de página de Streamlit
 st.set_page_config(
-    page_title="Alianza CryptoWallet v47",
+    page_title="Alianza CryptoWallet v48",
     page_icon="💼",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -2116,7 +2116,7 @@ st.markdown(f"""
 
 if not st.session_state.logged_in:
     st.sidebar.title("🔐 Alianza CryptoWallet")
-    st.sidebar.markdown("<div style='background-color: #1e293b; padding: 6px 12px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 15px; text-align: center;'><span style='color: #ffd700; font-size: 0.85rem; font-weight: bold;'>🚀 Versión de la App: v47</span></div>", unsafe_allow_html=True)
+    st.sidebar.markdown("<div style='background-color: #1e293b; padding: 6px 12px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 15px; text-align: center;'><span style='color: #ffd700; font-size: 0.85rem; font-weight: bold;'>🚀 Versión de la App: v48</span></div>", unsafe_allow_html=True)
     menu = st.sidebar.selectbox("Seleccione una opción", ["Iniciar Sesión", "Registrarse"])
     
     if menu == "Iniciar Sesión":
@@ -2184,7 +2184,7 @@ if not st.session_state.logged_in:
 else:
     # Sidebar de usuario conectado con toques dorados
     st.sidebar.markdown(f"<h2 class='golden-title'>👋 {st.session_state.fullname}</h2>", unsafe_allow_html=True)
-    st.sidebar.markdown("<div style='background-color: #1e293b; padding: 6px 12px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 15px; text-align: center;'><span style='color: #ffd700; font-size: 0.85rem; font-weight: bold;'>🚀 Versión de la App: v47</span></div>", unsafe_allow_html=True)
+    st.sidebar.markdown("<div style='background-color: #1e293b; padding: 6px 12px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 15px; text-align: center;'><span style='color: #ffd700; font-size: 0.85rem; font-weight: bold;'>🚀 Versión de la App: v48</span></div>", unsafe_allow_html=True)
     st.sidebar.markdown(f"**Billetera ID (Código):** `{st.session_state.wallet_code}`")
     
     # Obtener el número de notificaciones pendientes
@@ -2245,41 +2245,7 @@ else:
             st.markdown(f"<h1 class='golden-title'>💼 Billetera de {st.session_state.fullname}</h1>", unsafe_allow_html=True)
             
         # Fila de Logos Responsivos en la parte superior (SIAD, BINANCE, METAMASK y Dólar/COP)
-        st.markdown("""<div style="display: flex; align-items: center; justify-content: center; gap: 20px; margin: 15px 0 25px 0; flex-wrap: wrap;">
-    <!-- Binance Logo -->
-    <div style="text-align: center; opacity: 0.85; transition: opacity 0.2s;">
-        <img src="https://cryptologos.cc/logos/binance-coin-bnb-logo.png" width="38" style="vertical-align: middle; filter: drop-shadow(0 0 6px rgba(240,185,11,0.35));">
-        <div style="font-size: 0.7rem; color: #a1a1aa; margin-top: 5px; font-weight: bold; letter-spacing: 0.05em;">BINANCE</div>
-    </div>
-    
-    <div style="color: #ffd70033; font-size: 1rem; align-self: center; margin-top: -12px; font-weight: 300;">⚡</div>
-    
-    <!-- SIAD SD (Highlights most - Golden glowing border and enlarged scale) -->
-    <div style="text-align: center; border: 2.2px solid #ffd700; border-radius: 50%; padding: 8px; background: radial-gradient(circle, rgba(255,215,0,0.12) 0%, rgba(13,13,17,0) 80%); box-shadow: 0 0 20px rgba(255, 215, 0, 0.35); transform: scale(1.1); transition: all 0.3s ease;">
-        <img src="https://top100token.com/images/token_logos/0xC324649213ec1757190bc4b78bcD41Cc1545C264.png" 
-             onerror="this.onerror=null; this.src='https://assets.coingecko.com/coins/images/279/large/ethereum.png';" 
-             width="52" style="vertical-align: middle; border-radius: 50%;">
-        <div style="font-size: 0.78rem; color: #ffd700; margin-top: 5px; font-weight: 900; letter-spacing: 0.07em;">SIAD SD</div>
-    </div>
-    
-    <div style="color: #ffd70033; font-size: 1rem; align-self: center; margin-top: -12px; font-weight: 300;">⚡</div>
-    
-    <!-- MetaMask Logo -->
-    <div style="text-align: center; opacity: 0.85; transition: opacity 0.2s;">
-        <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/3/36/MetaMask_Fox.svg/512px-MetaMask_Fox.svg.png" width="38" style="vertical-align: middle; filter: drop-shadow(0 0 6px rgba(226,117,31,0.35));">
-        <div style="font-size: 0.7rem; color: #a1a1aa; margin-top: 5px; font-weight: bold; letter-spacing: 0.05em;">METAMASK</div>
-    </div>
-    
-    <div style="color: #ffd70033; font-size: 1rem; align-self: center; margin-top: -12px; font-weight: 300;">⚡</div>
-    
-    <!-- Dollar/COP Logo -->
-    <div style="text-align: center; opacity: 0.85; transition: opacity 0.2s;">
-        <div style="width: 38px; height: 38px; background-color: #10b981; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 1.3rem; font-weight: 900; color: #000000; box-shadow: 0 0 10px rgba(16,185,129,0.45); margin: 0 auto;">
-            $
-        </div>
-        <div style="font-size: 0.7rem; color: #a1a1aa; margin-top: 5px; font-weight: bold; letter-spacing: 0.05em;">USD / COP</div>
-    </div>
-</div>""", unsafe_allow_html=True)
+        st.markdown('<div style="display: flex; align-items: center; justify-content: center; gap: 20px; margin: 15px 0 25px 0; flex-wrap: wrap;"><div style="text-align: center; opacity: 0.85; transition: opacity 0.2s;"><img src="https://cryptologos.cc/logos/binance-coin-bnb-logo.png" width="38" style="vertical-align: middle; filter: drop-shadow(0 0 6px rgba(240,185,11,0.35));"><div style="font-size: 0.7rem; color: #a1a1aa; margin-top: 5px; font-weight: bold; letter-spacing: 0.05em;">BINANCE</div></div><div style="color: #ffd70033; font-size: 1rem; align-self: center; margin-top: -12px; font-weight: 300;">⚡</div><div style="text-align: center; border: 2.2px solid #ffd700; border-radius: 50%; padding: 8px; background: radial-gradient(circle, rgba(255,215,0,0.12) 0%, rgba(13,13,17,0) 80%); box-shadow: 0 0 20px rgba(255, 215, 0, 0.35); transform: scale(1.1); transition: all 0.3s ease;"><img src="https://top100token.com/images/token_logos/0xC324649213ec1757190bc4b78bcD41Cc1545C264.png" onerror="this.onerror=null; this.src=\'https://assets.coingecko.com/coins/images/279/large/ethereum.png\';" width="52" style="vertical-align: middle; border-radius: 50%;"><div style="font-size: 0.78rem; color: #ffd700; margin-top: 5px; font-weight: 900; letter-spacing: 0.07em;">SIAD SD</div></div><div style="color: #ffd70033; font-size: 1rem; align-self: center; margin-top: -12px; font-weight: 300;">⚡</div><div style="text-align: center; opacity: 0.85; transition: opacity 0.2s;"><img src="https://upload.wikimedia.org/wikipedia/commons/thumb/3/36/MetaMask_Fox.svg/512px-MetaMask_Fox.svg.png" width="38" style="vertical-align: middle; filter: drop-shadow(0 0 6px rgba(226,117,31,0.35));"><div style="font-size: 0.7rem; color: #a1a1aa; margin-top: 5px; font-weight: bold; letter-spacing: 0.05em;">METAMASK</div></div><div style="color: #ffd70033; font-size: 1rem; align-self: center; margin-top: -12px; font-weight: 300;">⚡</div><div style="text-align: center; opacity: 0.85; transition: opacity 0.2s;"><div style="width: 38px; height: 38px; background-color: #10b981; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 1.3rem; font-weight: 900; color: #000000; box-shadow: 0 0 10px rgba(16,185,129,0.45); margin: 0 auto;">$</div><div style="font-size: 0.7rem; color: #a1a1aa; margin-top: 5px; font-weight: bold; letter-spacing: 0.05em;">USD / COP</div></div></div>', unsafe_allow_html=True)
         
         # Alerta visual rápida si tiene notificaciones pendientes
         if unread_notifs > 0:
