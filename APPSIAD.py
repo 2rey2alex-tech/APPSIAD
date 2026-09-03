@@ -18,7 +18,7 @@ except ImportError:
 
 # Configuración de página de Streamlit
 st.set_page_config(
-    page_title="Alianza CryptoWallet v53",
+    page_title="Alianza CryptoWallet v57",
     page_icon="💼",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -34,7 +34,7 @@ if st_autorefresh is not None:
 # --- BASE DE DATOS Y CONFIGURACIÓN ---
 
 def init_db():
-    conn = sqlite3.connect("wallet_pro.db")
+    conn = sqlite3.connect("wallet_pro.db", timeout=30)
     cursor = conn.cursor()
     # Tabla de usuarios
     cursor.execute("""
@@ -307,9 +307,39 @@ def init_db():
             ticket_cost REAL,
             prize_sd REAL,
             status TEXT DEFAULT 'ACTIVE',
-            winner_option TEXT DEFAULT ''
+            winner_option TEXT DEFAULT '',
+            local_team TEXT DEFAULT '',
+            visitor_team TEXT DEFAULT '',
+            match_time TEXT DEFAULT '',
+            ends_at TEXT DEFAULT '',
+            current_score TEXT DEFAULT '0 - 0',
+            match_status TEXT DEFAULT 'No iniciado'
         )
     """)
+    try:
+        cursor.execute("ALTER TABLE sports_bets ADD COLUMN local_team TEXT DEFAULT ''")
+    except sqlite3.OperationalError:
+        pass
+    try:
+        cursor.execute("ALTER TABLE sports_bets ADD COLUMN visitor_team TEXT DEFAULT ''")
+    except sqlite3.OperationalError:
+        pass
+    try:
+        cursor.execute("ALTER TABLE sports_bets ADD COLUMN match_time TEXT DEFAULT ''")
+    except sqlite3.OperationalError:
+        pass
+    try:
+        cursor.execute("ALTER TABLE sports_bets ADD COLUMN ends_at TEXT DEFAULT ''")
+    except sqlite3.OperationalError:
+        pass
+    try:
+        cursor.execute("ALTER TABLE sports_bets ADD COLUMN current_score TEXT DEFAULT '0 - 0'")
+    except sqlite3.OperationalError:
+        pass
+    try:
+        cursor.execute("ALTER TABLE sports_bets ADD COLUMN match_status TEXT DEFAULT 'No iniciado'")
+    except sqlite3.OperationalError:
+        pass
     # Tabla: user_predictions
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS user_predictions (
@@ -417,8 +447,8 @@ def init_db():
         cursor.execute("SELECT COUNT(*) FROM sports_bets")
         if cursor.fetchone()[0] == 0:
             cursor.execute("""
-                INSERT OR IGNORE INTO sports_bets (match_name, ticket_cost, prize_sd, status) VALUES 
-                ('Colombia vs. Brasil (Clasificatorias)', 1.0, 3.0, 'ACTIVE')
+                INSERT OR IGNORE INTO sports_bets (match_name, ticket_cost, prize_sd, status, local_team, visitor_team, match_time, ends_at, current_score, match_status) VALUES 
+                ('Colombia vs. Brasil (Clasificatorias)', 1.0, 3.0, 'ACTIVE', 'Colombia', 'Brasil', 'Hoy 18:00', 'Hoy 20:00', '0 - 0', 'No iniciado')
             """)
     except Exception:
         pass
@@ -444,7 +474,7 @@ def hash_password(password):
     return hashlib.sha256(password.encode()).hexdigest()
 
 def get_db_connection():
-    return sqlite3.connect("wallet_pro.db")
+    return sqlite3.connect("wallet_pro.db", timeout=30)
 
 def generate_unique_wallet_code():
     conn = get_db_connection()
@@ -1475,7 +1505,7 @@ def play_trivia(user_code, trivia_id, chosen_option):
         # Registrar transacción de entrada
         cursor.execute("""
             INSERT INTO transactions (sender_code, receiver_code, amount)
-            VALUES (?, 'SYSTEM_TRIVIA_FEE', ?)
+            VALUES (?, '99999_TRIVIA_FEE', ?)
         """, (user_code, trivia["entry_fee"]))
         
         # Registrar intento
@@ -1492,7 +1522,7 @@ def play_trivia(user_code, trivia_id, chosen_option):
             # Registrar transacción de premio
             cursor.execute("""
                 INSERT INTO transactions (sender_code, receiver_code, amount)
-                VALUES ('SYSTEM_TRIVIA_REWARD', ?, ?)
+                VALUES ('99999_TRIVIA_REWARD', ?, ?)
             """, (user_code, trivia["prize_sd"]))
             
             add_notification(user_code, f"🧠 <b>¡Trivia Completada!</b> Has respondido correctamente y ganaste <b>{format_num(trivia['prize_sd'])} SD</b>.")
@@ -1513,11 +1543,21 @@ def play_trivia(user_code, trivia_id, chosen_option):
 def get_active_sports_bet():
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("""
-        SELECT id, match_name, ticket_cost, prize_sd, status, winner_option 
-        FROM sports_bets WHERE status = 'ACTIVE' ORDER BY id DESC LIMIT 1
-    """)
-    res = cursor.fetchone()
+    try:
+        cursor.execute("""
+            SELECT id, match_name, ticket_cost, prize_sd, status, winner_option,
+                   local_team, visitor_team, match_time, ends_at, current_score, match_status
+            FROM sports_bets WHERE status = 'ACTIVE' ORDER BY id DESC LIMIT 1
+        """)
+        res = cursor.fetchone()
+    except Exception:
+        cursor.execute("""
+            SELECT id, match_name, ticket_cost, prize_sd, status, winner_option
+            FROM sports_bets WHERE status = 'ACTIVE' ORDER BY id DESC LIMIT 1
+        """)
+        res = cursor.fetchone()
+        if res:
+            res = list(res) + ["Colombia", "Brasil", "Hoy 18:00", "Hoy 20:00", "0 - 0", "No iniciado"]
     conn.close()
     if res:
         return {
@@ -1526,7 +1566,13 @@ def get_active_sports_bet():
             "ticket_cost": res[2],
             "prize_sd": res[3],
             "status": res[4],
-            "winner_option": res[5]
+            "winner_option": res[5],
+            "local_team": res[6] if len(res) > 6 and res[6] else "",
+            "visitor_team": res[7] if len(res) > 7 and res[7] else "",
+            "match_time": res[8] if len(res) > 8 and res[8] else "",
+            "ends_at": res[9] if len(res) > 9 and res[9] else "",
+            "current_score": res[10] if len(res) > 10 and res[10] else "0 - 0",
+            "match_status": res[11] if len(res) > 11 and res[11] else "No iniciado"
         }
     return None
 
@@ -1563,7 +1609,7 @@ def buy_sports_prediction(user_code, match_id, chosen_prediction):
         # Registrar transacción
         cursor.execute("""
             INSERT INTO transactions (sender_code, receiver_code, amount)
-            VALUES (?, 'SYSTEM_SPORTS_TICKET', ?)
+            VALUES (?, '99999_SPORTS_TICKET', ?)
         """, (user_code, bet["ticket_cost"]))
         
         # Registrar predicción
@@ -1611,7 +1657,7 @@ def resolve_sports_bet(match_id, winning_option):
                 # Registrar transacción de premio
                 cursor.execute("""
                     INSERT INTO transactions (sender_code, receiver_code, amount)
-                    VALUES ('SYSTEM_SPORTS_REWARD', ?, ?)
+                    VALUES ('99999_SPORTS_REWARD', ?, ?)
                 """, (user_code, prize_sd))
                 
                 add_notification(
@@ -2711,7 +2757,7 @@ st.markdown(f"""
 
 if not st.session_state.logged_in:
     st.sidebar.title("🔐 Alianza CryptoWallet")
-    st.sidebar.markdown("<div style='background-color: #1e293b; padding: 6px 12px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 15px; text-align: center;'><span style='color: #ffd700; font-size: 0.85rem; font-weight: bold;'>🚀 Versión de la App: v56</span></div>", unsafe_allow_html=True)
+    st.sidebar.markdown("<div style='background-color: #1e293b; padding: 6px 12px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 15px; text-align: center;'><span style='color: #ffd700; font-size: 0.85rem; font-weight: bold;'>🚀 Versión de la App: v57</span></div>", unsafe_allow_html=True)
     menu = st.sidebar.selectbox("Seleccione una opción", ["Iniciar Sesión", "Registrarse"])
     
     if menu == "Iniciar Sesión":
@@ -2779,7 +2825,7 @@ if not st.session_state.logged_in:
 else:
     # Sidebar de usuario conectado con toques dorados
     st.sidebar.markdown(f"<h2 class='golden-title'>👋 {st.session_state.fullname}</h2>", unsafe_allow_html=True)
-    st.sidebar.markdown("<div style='background-color: #1e293b; padding: 6px 12px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 15px; text-align: center;'><span style='color: #ffd700; font-size: 0.85rem; font-weight: bold;'>🚀 Versión de la App: v56</span></div>", unsafe_allow_html=True)
+    st.sidebar.markdown("<div style='background-color: #1e293b; padding: 6px 12px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 15px; text-align: center;'><span style='color: #ffd700; font-size: 0.85rem; font-weight: bold;'>🚀 Versión de la App: v57</span></div>", unsafe_allow_html=True)
     st.sidebar.markdown(f"**Billetera ID (Código):** `{st.session_state.wallet_code}`")
     
     # Obtener el número de notificaciones pendientes
@@ -2789,6 +2835,9 @@ else:
     # Balance actualizado
     balance, wallet_code, balance_cop_user, is_vip_user = get_user_balance(st.session_state.username)
     st.session_state.wallet_code = wallet_code
+    
+    # RESPALDO DE BALANCE EN BASE DE DATOS LOCAL
+    balance_db = balance
 
     # Sincronización automática de saldo con la Blockchain (Binance Smart Chain) si tiene billetera registrada
     user_bsc_wallet = get_user_bsc_address(st.session_state.wallet_code)
@@ -3810,8 +3859,20 @@ else:
             st.subheader("🎮 Centro de Micro-Juegos y Sorteos de Alta Rotación")
             st.write("Gasta tus fracciones de tokens para ganar grandes premios acumulados. ¡Toda la diversión en un solo lugar!")
             
-            if st.session_state.sync_blockchain and user_bsc_wallet:
-                st.warning("⚠️ <b>Sincronización de MetaMask Activa:</b> Estás visualizando tu saldo real on-chain. Para jugar a los sorteos de Alianza, el sistema debitará y acreditará en tu <b>Saldo Local de la App</b>. Te recomendamos presionar el botón <b>❌ Desconectar</b> en Inicio para que veas tus saldos locales cambiar en vivo.")
+            # Tarjeta de Saldo Local de Juego Disponible
+            st.markdown(f"""
+            <div style="background-color: #0d0d11; border: 1.5px solid #10b981; border-radius: 12px; padding: 12px 20px; display: flex; align-items: center; justify-content: space-between; margin-bottom: 15px; box-shadow: 0 4px 15px rgba(16, 185, 129, 0.15);">
+                <div>
+                    <span style="color:#10b981; font-weight:bold; font-size:1.0rem;">💳 Saldo de Juego Disponible (Base de Datos):</span>
+                    <span style="color:#a1a1aa; font-size:0.8rem; display:block; margin-top:2px;">Este saldo se descuenta y se abona localmente sin pagar comisiones de gas.</span>
+                </div>
+                <div style="text-align:right;">
+                    <span style="color:#10b981; font-weight:900; font-size:1.4rem;">{format_num(balance_db)} {token['symbol']}</span>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+            
+
         
             # Sub-tabs para organizar los 7 juegos
             tab_sub_spin, tab_sub_ppt, tab_sub_trivia, tab_sub_bets, tab_sub_auc, tab_sub_scratch, tab_sub_tip = st.tabs([
@@ -3851,7 +3912,7 @@ else:
                 with col_spin_r:
                     if st.button("🎡 Girar Ruleta Ahora", key="play_spin_btn"):
                         # Verificar saldo
-                        if balance < spin_cost:
+                        if balance_db < spin_cost:
                             st.error(f"⚠️ Saldo insuficiente para girar la ruleta. Cuesta {format_num(spin_cost)} SD.")
                         else:
                             with st.spinner("⏳ ¡Girando la ruleta con física 3D en la blockchain...!"):
@@ -3914,10 +3975,10 @@ else:
                 col_ppt_l, col_ppt_r = st.columns([1, 1])
                 with col_ppt_l:
                     chosen_move = st.radio("🥊 Selecciona tu movimiento de ataque:", ["🪨 Piedra", "📄 Papel", "✂️ Tijera"], horizontal=True, key="user_ppt_move_field")
-                    bet_amount = st.number_input("💵 Cantidad de Tokens SD a apostar en el duelo:", min_value=0.1, max_value=max(float(balance), 0.1), value=1.0, format="%.2f", key="user_ppt_bet_field")
+                    bet_amount = st.number_input("💵 Cantidad de Tokens SD a apostar en el duelo:", min_value=0.1, max_value=max(float(balance_db), 0.1), value=1.0, format="%.2f", key="user_ppt_bet_field")
                 with col_ppt_r:
                     if st.button("🥊 Confirmar e Iniciar Duelo", key="play_ppt_btn"):
-                        if balance < bet_amount:
+                        if balance_db < bet_amount:
                             st.error("⚠️ Saldo insuficiente para realizar esta apuesta.")
                         else:
                             with st.spinner("🥊 ¡Lanzando jugadas al aire... El bot está calculando su defensa!"):
@@ -4043,10 +4104,32 @@ else:
                     st.info("No hay partidos activos para pronósticos en este momento. ¡Pronto el administrador publicará un gran partido!")
                 else:
                     st.markdown(f"""
-                    <div class="card" style="border-left: 4px solid #ef4444; background: linear-gradient(135deg, #0d0d11 0%, #200404 100%) !important;">
-                        <h4 style="color:#ef4444; margin-top:0;">⚽ PARTIDO EN VIVO</h4>
-                            <p style="font-size:1.3rem; color:#ffffff; font-weight:900; letter-spacing:0.02em; margin-bottom:12px; text-align:center;">{bet['match_name']}</p>
-                        <p style="font-size:0.85rem; color:#a1a1aa; margin:0; text-align:center;">
+                    <div class="card" style="border-left: 4px solid #ef4444; background: linear-gradient(135deg, #0d0d11 0%, #200404 100%) !important; padding: 20px;">
+                        <h4 style="color:#ef4444; margin-top:0; text-align:center; font-weight:800; text-transform:uppercase; letter-spacing:0.05em;">⚽ PRONÓSTICOS DEPORTIVOS (LA POLLA ALIANZA)</h4>
+                        
+                        <!-- Panel de Marcador Estilo Marcador de TV -->
+                        <div style="display:flex; align-items:center; justify-content:space-between; margin: 20px 0; background-color:#08080c; border:1px solid #ffffff15; border-radius:12px; padding:15px 25px; box-shadow:inset 0 0 15px rgba(0,0,0,0.6); flex-wrap:wrap; gap:10px;">
+                            <div style="text-align:center; flex:1; min-width:120px;">
+                                <div style="font-size:1.4rem; font-weight:900; color:#ffffff;">{bet['local_team'] if bet['local_team'] else bet['match_name'].split(' vs ')[0] if ' vs ' in bet['match_name'] else bet['match_name']}</div>
+                                <div style="font-size:0.75rem; color:#888899; margin-top:3px; font-weight:bold; letter-spacing:0.05em;">LOCAL</div>
+                            </div>
+                            <div style="text-align:center; padding: 0 20px; border-left:1px solid #ffffff15; border-right:1px solid #ffffff15; min-width:120px; margin:0 auto;">
+                                <div style="font-size:2.2rem; font-weight:950; color:#ffd700; letter-spacing:0.1em; text-shadow:0 0 10px rgba(255,215,0,0.3);">{bet['current_score']}</div>
+                                <div style="font-size:0.85rem; font-weight:bold; color:#10b981; text-transform:uppercase; margin-top:5px; background-color:#10b98115; padding:2px 8px; border-radius:15px; display:inline-block;">⏱️ {bet['match_status']}</div>
+                            </div>
+                            <div style="text-align:center; flex:1; min-width:120px;">
+                                <div style="font-size:1.4rem; font-weight:900; color:#ffffff;">{bet['visitor_team'] if bet['visitor_team'] else bet['match_name'].split(' vs ')[1] if ' vs ' in bet['match_name'] else 'Visitante'}</div>
+                                <div style="font-size:0.75rem; color:#888899; margin-top:3px; font-weight:bold; letter-spacing:0.05em;">VISITANTE</div>
+                            </div>
+                        </div>
+                        
+                        <!-- Detalles de Tiempos y Fechas -->
+                        <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; font-size:0.85rem; color:#a1a1aa; margin-bottom:15px; border-top:1px solid #ffffff15; padding-top:15px;">
+                            <div>⏰ <b>Hora de Inicio:</b> <span style="color:#ffffff;">{bet['match_time']}</span></div>
+                            <div style="text-align:right;">🏁 <b>Finalización Estimada / Fin del Partido:</b> <span style="color:#ffffff;">{bet['ends_at']}</span></div>
+                        </div>
+                        
+                        <p style="font-size:0.85rem; color:#a1a1aa; margin:0; text-align:center; border-top:1px solid #ffffff15; padding-top:12px;">
                             🎟️ <b>Costo del Ticket:</b> {format_num(bet['ticket_cost'])} SD | 🏆 <b>Premio de Acierto:</b> {format_num(bet['prize_sd'])} SD
                         </p>
                     </div>
@@ -4205,7 +4288,7 @@ else:
                         """, unsafe_allow_html=True)
                 with col_sc_r:
                     if st.button("🎟️ Comprar y Raspar Tarjeta", key="play_scratch_btn"):
-                        if balance < scratch_cost:
+                        if balance_db < scratch_cost:
                             st.error(f"⚠️ Saldo insuficiente para comprar la tarjeta. Cuesta {format_num(scratch_cost)} SD.")
                         else:
                             with st.spinner("⏳ Comprando tarjeta y revelando casillas protectoras..."):
@@ -4309,7 +4392,7 @@ else:
                     """, unsafe_allow_html=True)
                 
                     if st.button(f"🔓 Desbloquear Consejo con {format_num(tip_cost)} SD", key="unlock_tip_btn"):
-                        if balance < tip_cost:
+                        if balance_db < tip_cost:
                             st.error(f"⚠️ Saldo insuficiente para desbloquear el consejo. Cuesta {format_num(tip_cost)} SD.")
                         else:
                             conn_un = get_db_connection()
@@ -4896,146 +4979,158 @@ else:
     elif choice == "👑 Panel del Propietario":
         st.markdown("<h1 class='golden-title'>👑 Consola del Propietario de la App</h1>", unsafe_allow_html=True)
         
+        # Consola de edición expresa ultra-llamativa
+        st.markdown("""
+        <div style="background: linear-gradient(135deg, #1f1a01 0%, #08080c 100%) !important; border: 3px solid #ffd700; border-radius: 15px; padding: 22px 25px; margin-top: 15px; margin-bottom: 25px; text-align: center; box-shadow: 0 0 25px rgba(255, 215, 0, 0.45); border-image: linear-gradient(to right, #ffd700, #b8860b) 1;">
+            <h2 style="color:#ffd700; margin:0 0 10px 0; font-weight:950; letter-spacing:0.07em; font-size:1.6rem; text-shadow:0 0 12px rgba(255,215,0,0.4); text-transform:uppercase;">🛠️ CONSOLA DE CONFIGURACIÓN Y EDICIÓN ECONÓMICA</h2>
+            <p style="font-size:0.95rem; color:#ffffff; line-height:1.5rem; margin-bottom:15px;">Como propietario, dispones del control de precios, tarifas de envío y costos de la Tienda Alianza y los minijuegos en tiempo real. Activa el botón de abajo para expandir los editores instantáneos.</p>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        # Botón checkbox llamativo
+        show_express_editors = st.checkbox("⚙️ MOSTRAR EDITORES EXPRESOS DE LA TIENDA Y JUEGOS EN VIVO", value=False, key="show_express_editors_chk_field")
+        
         # --- NUEVA SECCIÓN DE ACCESO EXPRESO A CONFIGURACIÓN DE JUEGOS ---
-        st.markdown("""
-        <div style="background: linear-gradient(135deg, #091c12 0%, #0d0d11 100%) !important; border: 2.5px solid #ffd700; border-radius: 12px; padding: 18px; margin-top: 15px; margin-bottom: 15px; text-align: center; box-shadow: 0 4px 15px rgba(255, 215, 0, 0.25);">
-            <h3 style="color:#ffd700; margin-top:0; font-weight:900; letter-spacing:0.05em; font-size:1.2rem;">🎮 CONSOLA DE CONFIGURACIÓN RÁPIDA DE LOS JUEGOS</h3>
-            <p style="font-size:0.85rem; color:#a1a1aa; margin-bottom:0px;">Modifica costos de tickets, precios de entradas, premios y multiplicadores de ganancia de todos los juegos al instante.</p>
-        </div>
-        """, unsafe_allow_html=True)
+        if show_express_editors:
+            st.markdown("""
+            <div style="background: linear-gradient(135deg, #091c12 0%, #0d0d11 100%) !important; border: 2.5px solid #ffd700; border-radius: 12px; padding: 18px; margin-top: 15px; margin-bottom: 15px; text-align: center; box-shadow: 0 4px 15px rgba(255, 215, 0, 0.25);">
+                <h3 style="color:#ffd700; margin-top:0; font-weight:900; letter-spacing:0.05em; font-size:1.2rem;">🎮 CONSOLA DE CONFIGURACIÓN RÁPIDA DE LOS JUEGOS</h3>
+                <p style="font-size:0.85rem; color:#a1a1aa; margin-bottom:0px;">Modifica costos de tickets, precios de entradas, premios y multiplicadores de ganancia de todos los juegos al instante.</p>
+            </div>
+            """, unsafe_allow_html=True)
         
-        with st.expander("🎮 ABRIR PANEL DE CONFIGURACIÓN RÁPIDA DE LOS JUEGOS (EDITAR VALORES)", expanded=False):
-            st.subheader("⚙️ Configuración y Edición de Valores de Juegos")
-            st.write("Modifica el valor de los tickets de entrada, precios y premios en tokens SIAD (SD) de todos los juegos interactivos de la aplicación.")
-            
-            # Form for express games config
-            r_cost_text_e, r_cost_e = get_game_setting('ruleta_cost', default_num=1.0)
-            r_prizes_e, _ = get_game_setting('ruleta_prizes', default_val='0.1,0.5,1.0,2.0,5.0,0.0')
-            r_prob_e, _ = get_game_setting('ruleta_prob', default_val='20,30,25,15,5,5')
-            
-            _, p_mult_e = get_game_setting('ppt_multiplier', default_num=1.90)
-            
-            _, s_cost_e = get_game_setting('scratch_cost', default_num=0.5)
-            s_prizes_e, _ = get_game_setting('scratch_prizes', default_val='0.0,0.2,0.5,1.0,3.0,10.0')
-            s_prob_e, _ = get_game_setting('scratch_prob', default_val='50,25,15,7,2,1')
-            
-            _, tip_cost_e = get_game_setting('crypto_tip_cost', default_num=0.2)
-            tip_text_e, _ = get_game_setting('crypto_tip', default_val='')
-            
-            curr_trivia_e = get_active_trivia()
-            curr_bet_e = get_active_sports_bet()
-            
-            with st.form("admin_games_express_config_form_v2"):
-                col_exp_g1, col_exp_g2 = st.columns(2)
-                with col_exp_g1:
-                    st.write("<b>🎡 La Ruleta (Lucky Spin):</b>", unsafe_allow_html=True)
-                    new_exp_r_cost = st.number_input("Costo de Giro de Ruleta (SD):", value=float(r_cost_e), min_value=0.0, format="%.2f", key="exp_r_cost_main")
-                    new_exp_r_prizes = st.text_input("Premios (6 valores separados por comas):", value=r_prizes_e, key="exp_r_prizes_main")
-                    new_exp_r_prob = st.text_input("Probabilidades (deben sumar 100):", value=r_prob_e, key="exp_r_prob_main")
-                    
-                    st.write("<b>🥊 Piedra, Papel o Tijera (PPT):</b>", unsafe_allow_html=True)
-                    new_exp_p_mult = st.number_input("Multiplicador de Ganancia de PPT (Ej: 1.90):", value=float(p_mult_e), min_value=1.0, max_value=3.0, format="%.2f", key="exp_p_mult_main")
-                    
-                    st.write("<b>🧠 Trivia Alianza Activa:</b>", unsafe_allow_html=True)
-                    new_exp_t_fee = st.number_input("Costo de Entrada a la Trivia (SD):", value=float(curr_trivia_e["entry_fee"]) if curr_trivia_e else 0.50, min_value=0.0, format="%.2f", key="exp_t_fee_main")
-                    new_exp_t_prize = st.number_input("Premio de la Trivia (SD):", value=float(curr_trivia_e["prize_sd"]) if curr_trivia_e else 1.50, min_value=0.0001, format="%.2f", key="exp_t_prize_main")
-                    
-                with col_exp_g2:
-                    st.write("<b>🎟️ Raspa y Gana (Scratch Cards):</b>", unsafe_allow_html=True)
-                    new_exp_s_cost = st.number_input("Costo de Tarjeta (SD):", value=float(s_cost_e), min_value=0.0, format="%.2f", key="exp_s_cost_main")
-                    new_exp_s_prizes = st.text_input("Premios (6 valores separados por comas):", value=s_prizes_e, key="exp_s_prizes_main")
-                    new_exp_s_prob = st.text_input("Probabilidades (deben sumar 100):", value=s_prob_e, key="exp_s_prob_main")
-                    
-                    st.write("<b>⚽ Pronósticos Deportivos (La Polla):</b>", unsafe_allow_html=True)
-                    new_exp_m_cost = st.number_input("Costo del Ticket de Pronóstico (SD):", value=float(curr_bet_e["ticket_cost"]) if curr_bet_e else 1.0, min_value=0.0, format="%.2f", key="exp_m_cost_main")
-                    new_exp_m_prize = st.number_input("Premio por Acierto (SD):", value=float(curr_bet_e["prize_sd"]) if curr_bet_e else 3.0, min_value=0.0001, format="%.2f", key="exp_m_prize_main")
-                    
-                    st.write("<b>🔮 Consejo Cripto:</b>", unsafe_allow_html=True)
-                    new_exp_tip_cost = st.number_input("Costo para desbloquear Consejo (SD):", value=float(tip_cost_e), min_value=0.0, format="%.2f", key="exp_tip_cost_main")
+            with st.expander("🎮 ABRIR PANEL DE CONFIGURACIÓN RÁPIDA DE LOS JUEGOS (EDITAR VALORES)", expanded=False):
+                st.subheader("⚙️ Configuración y Edición de Valores de Juegos")
+                st.write("Modifica el valor de los tickets de entrada, precios y premios en tokens SIAD (SD) de todos los juegos interactivos de la aplicación.")
                 
-                submit_exp_games_config = st.form_submit_button("💾 Guardar Ajustes de Todos los Juegos")
+                # Form for express games config
+                r_cost_text_e, r_cost_e = get_game_setting('ruleta_cost', default_num=1.0)
+                r_prizes_e, _ = get_game_setting('ruleta_prizes', default_val='0.1,0.5,1.0,2.0,5.0,0.0')
+                r_prob_e, _ = get_game_setting('ruleta_prob', default_val='20,30,25,15,5,5')
                 
-                if submit_exp_games_config:
-                    r_probs_chk = [int(x) for x in new_exp_r_prob.split(',') if x]
-                    s_probs_chk = [int(x) for x in new_exp_s_prob.split(',') if x]
-                    
-                    if sum(r_probs_chk) != 100 or sum(s_probs_chk) != 100:
-                        st.error("⚠️ Las probabilidades de la Ruleta y del Raspa y Gana deben sumar exactamente 100.")
-                    elif len(new_exp_r_prizes.split(',')) != 6 or len(new_exp_s_prizes.split(',')) != 6:
-                        st.error("⚠️ Debes ingresar exactamente 6 valores de premios para la Ruleta y para el Raspa y Gana.")
-                    else:
-                        update_game_setting('ruleta_cost', '', new_exp_r_cost)
-                        update_game_setting('ruleta_prizes', new_exp_r_prizes, 0.0)
-                        update_game_setting('ruleta_prob', new_exp_r_prob, 0.0)
-                        update_game_setting('ppt_multiplier', '', new_exp_p_mult)
-                        update_game_setting('scratch_cost', '', new_exp_s_cost)
-                        update_game_setting('scratch_prizes', new_exp_s_prizes, 0.0)
-                        update_game_setting('scratch_prob', new_exp_s_prob, 0.0)
-                        update_game_setting('crypto_tip_cost', '', new_exp_tip_cost)
+                _, p_mult_e = get_game_setting('ppt_multiplier', default_num=1.90)
+                
+                _, s_cost_e = get_game_setting('scratch_cost', default_num=0.5)
+                s_prizes_e, _ = get_game_setting('scratch_prizes', default_val='0.0,0.2,0.5,1.0,3.0,10.0')
+                s_prob_e, _ = get_game_setting('scratch_prob', default_val='50,25,15,7,2,1')
+                
+                _, tip_cost_e = get_game_setting('crypto_tip_cost', default_num=0.2)
+                tip_text_e, _ = get_game_setting('crypto_tip', default_val='')
+                
+                curr_trivia_e = get_active_trivia()
+                curr_bet_e = get_active_sports_bet()
+                
+                with st.form("admin_games_express_config_form_v2"):
+                    col_exp_g1, col_exp_g2 = st.columns(2)
+                    with col_exp_g1:
+                        st.write("<b>🎡 La Ruleta (Lucky Spin):</b>", unsafe_allow_html=True)
+                        new_exp_r_cost = st.number_input("Costo de Giro de Ruleta (SD):", value=float(r_cost_e), min_value=0.0, format="%.2f", key="exp_r_cost_main")
+                        new_exp_r_prizes = st.text_input("Premios (6 valores separados por comas):", value=r_prizes_e, key="exp_r_prizes_main")
+                        new_exp_r_prob = st.text_input("Probabilidades (deben sumar 100):", value=r_prob_e, key="exp_r_prob_main")
                         
-                        if curr_trivia_e:
-                            conn_t_up_exp = get_db_connection()
-                            cursor_t_up_exp = conn_t_up_exp.cursor()
-                            cursor_t_up_exp.execute("UPDATE trivias SET entry_fee = ?, prize_sd = ? WHERE id = ?", (new_exp_t_fee, new_exp_t_prize, curr_trivia_e["id"]))
-                            conn_t_up_exp.commit()
-                            conn_t_up_exp.close()
-                            
-                        if curr_bet_e:
-                            conn_m_up_exp = get_db_connection()
-                            cursor_m_up_exp = conn_m_up_exp.cursor()
-                            cursor_m_up_exp.execute("UPDATE sports_bets SET ticket_cost = ?, prize_sd = ? WHERE id = ?", (new_exp_m_cost, new_exp_m_prize, curr_bet_e["id"]))
-                            conn_m_up_exp.commit()
-                            conn_m_up_exp.close()
-                            
-                        st.success("✅ ¡Ajustes de todos los juegos guardados con éxito!")
-                        st.rerun()
-        
-        # --- NUEVA SECCIÓN DE ACCESO EXPRESO A EDICIÓN DE TIENDA ---
-        st.markdown("""
-        <div style="background: linear-gradient(135deg, #1e1b00 0%, #0d0d11 100%) !important; border: 2.5px solid #ffd700; border-radius: 12px; padding: 18px; margin-bottom: 15px; text-align: center; box-shadow: 0 4px 15px rgba(255, 215, 0, 0.25);">
-            <h3 style="color:#ffd700; margin-top:0; font-weight:900; letter-spacing:0.05em; font-size:1.2rem;">🛍️ CONSOLA DE EDICIÓN EXPRESA DE LA TIENDA</h3>
-            <p style="font-size:0.85rem; color:#a1a1aa; margin-bottom:0px;">Modifica costos de envío, valores de productos, combos de alimentos y pines digitales al instante de forma rápida.</p>
-        </div>
-        """, unsafe_allow_html=True)
-        
-        with st.expander("🛍️ ABRIR PANEL DE EDICIÓN RÁPIDA DE LA TIENDA ALIANZA (EDITAR VALORES)", expanded=False):
-            st.subheader("🛒 Catálogo General de Precios de la Tienda")
-            st.write("Modifica el nombre, descripción, costo de tokens (SD) y tarifas de envío al instante. Los cambios se guardarán automáticamente en la base de datos.")
-            
-            try:
-                conn_items_exp = get_db_connection()
-                store_items_list_exp = pd.read_sql_query("SELECT id, name, description, price_sd, item_type, delivery_fee_sd FROM store_items", conn_items_exp)
-                conn_items_exp.close()
-                
-                for idx_i_e, item_row_e in store_items_list_exp.iterrows():
-                    i_id_e = item_row_e['id']
-                    i_name_e = item_row_e['name']
-                    i_type_e = item_row_e['item_type']
-                    i_price_e = float(item_row_e['price_sd'])
-                    i_desc_e = item_row_e['description']
-                    i_deliv_e = float(item_row_e['delivery_fee_sd']) if item_row_e['delivery_fee_sd'] is not None else 0.0
+                        st.write("<b>🥊 Piedra, Papel o Tijera (PPT):</b>", unsafe_allow_html=True)
+                        new_exp_p_mult = st.number_input("Multiplicador de Ganancia de PPT (Ej: 1.90):", value=float(p_mult_e), min_value=1.0, max_value=3.0, format="%.2f", key="exp_p_mult_main")
+                        
+                        st.write("<b>🧠 Trivia Alianza Activa:</b>", unsafe_allow_html=True)
+                        new_exp_t_fee = st.number_input("Costo de Entrada a la Trivia (SD):", value=float(curr_trivia_e["entry_fee"]) if curr_trivia_e else 0.50, min_value=0.0, format="%.2f", key="exp_t_fee_main")
+                        new_exp_t_prize = st.number_input("Premio de la Trivia (SD):", value=float(curr_trivia_e["prize_sd"]) if curr_trivia_e else 1.50, min_value=0.0001, format="%.2f", key="exp_t_prize_main")
+                        
+                    with col_exp_g2:
+                        st.write("<b>🎟️ Raspa y Gana (Scratch Cards):</b>", unsafe_allow_html=True)
+                        new_exp_s_cost = st.number_input("Costo de Tarjeta (SD):", value=float(s_cost_e), min_value=0.0, format="%.2f", key="exp_s_cost_main")
+                        new_exp_s_prizes = st.text_input("Premios (6 valores separados por comas):", value=s_prizes_e, key="exp_s_prizes_main")
+                        new_exp_s_prob = st.text_input("Probabilidades (deben sumar 100):", value=s_prob_e, key="exp_s_prob_main")
+                        
+                        st.write("<b>⚽ Pronósticos Deportivos (La Polla):</b>", unsafe_allow_html=True)
+                        new_exp_m_cost = st.number_input("Costo del Ticket de Pronóstico (SD):", value=float(curr_bet_e["ticket_cost"]) if curr_bet_e else 1.0, min_value=0.0, format="%.2f", key="exp_m_cost_main")
+                        new_exp_m_prize = st.number_input("Premio por Acierto (SD):", value=float(curr_bet_e["prize_sd"]) if curr_bet_e else 3.0, min_value=0.0001, format="%.2f", key="exp_m_prize_main")
+                        
+                        st.write("<b>🔮 Consejo Cripto:</b>", unsafe_allow_html=True)
+                        new_exp_tip_cost = st.number_input("Costo para desbloquear Consejo (SD):", value=float(tip_cost_e), min_value=0.0, format="%.2f", key="exp_tip_cost_main")
                     
-                    type_label_e = "🏆 Membresía VIP Alianza" if i_type_e == 'MEMBERSHIP' else ("🍔 Alimentos y Bebidas" if i_type_e == 'FOOD' else "🎁 Tarjeta de Regalo / Pin / Recarga")
-                    with st.container():
-                        st.write(f"<b>Editar Artículo: {i_name_e} ({type_label_e})</b>", unsafe_allow_html=True)
-                        with st.form(f"edit_express_store_item_form_{i_id_e}"):
-                            edit_name_e = st.text_input("Nombre del Artículo", value=i_name_e)
-                            edit_desc_e = st.text_area("Descripción", value=i_desc_e, height=80)
-                            edit_price_e = st.number_input("Costo del Artículo (SD)", value=i_price_e, min_value=0.0001, format="%.4f")
-                            edit_deliv_e = st.number_input("Tarifa de Envío / Domicilio (SD)", value=i_deliv_e, min_value=0.0, format="%.4f") if i_type_e == 'FOOD' else 0.0
-                            submit_item_edit_e = st.form_submit_button(f"💾 Guardar Cambios para '{i_name_e}'")
+                    submit_exp_games_config = st.form_submit_button("💾 Guardar Ajustes de Todos los Juegos")
+                    
+                    if submit_exp_games_config:
+                        r_probs_chk = [int(x) for x in new_exp_r_prob.split(',') if x]
+                        s_probs_chk = [int(x) for x in new_exp_s_prob.split(',') if x]
+                        
+                        if sum(r_probs_chk) != 100 or sum(s_probs_chk) != 100:
+                            st.error("⚠️ Las probabilidades de la Ruleta y del Raspa y Gana deben sumar exactamente 100.")
+                        elif len(new_exp_r_prizes.split(',')) != 6 or len(new_exp_s_prizes.split(',')) != 6:
+                            st.error("⚠️ Debes ingresar exactamente 6 valores de premios para la Ruleta y para el Raspa y Gana.")
+                        else:
+                            update_game_setting('ruleta_cost', '', new_exp_r_cost)
+                            update_game_setting('ruleta_prizes', new_exp_r_prizes, 0.0)
+                            update_game_setting('ruleta_prob', new_exp_r_prob, 0.0)
+                            update_game_setting('ppt_multiplier', '', new_exp_p_mult)
+                            update_game_setting('scratch_cost', '', new_exp_s_cost)
+                            update_game_setting('scratch_prizes', new_exp_s_prizes, 0.0)
+                            update_game_setting('scratch_prob', new_exp_s_prob, 0.0)
+                            update_game_setting('crypto_tip_cost', '', new_exp_tip_cost)
                             
-                            if submit_item_edit_e:
-                                if not edit_name_e.strip() or not edit_desc_e.strip():
-                                    st.error("⚠️ El nombre y la descripción no pueden estar vacíos.")
-                                else:
-                                    update_store_item_price(i_id_e, edit_price_e, edit_name_e, edit_desc_e, edit_deliv_e)
-                                    st.success(f"✅ ¡Se han guardado los cambios para '{edit_name_e}' con éxito!")
-                                    st.rerun()
-                        st.markdown("<hr style='border-color: #ffd7001a;'>", unsafe_allow_html=True)
-            except Exception as e_exp:
-                st.write("Cargando catálogo...")
-        
+                            if curr_trivia_e:
+                                conn_t_up_exp = get_db_connection()
+                                cursor_t_up_exp = conn_t_up_exp.cursor()
+                                cursor_t_up_exp.execute("UPDATE trivias SET entry_fee = ?, prize_sd = ? WHERE id = ?", (new_exp_t_fee, new_exp_t_prize, curr_trivia_e["id"]))
+                                conn_t_up_exp.commit()
+                                conn_t_up_exp.close()
+                                
+                            if curr_bet_e:
+                                conn_m_up_exp = get_db_connection()
+                                cursor_m_up_exp = conn_m_up_exp.cursor()
+                                cursor_m_up_exp.execute("UPDATE sports_bets SET ticket_cost = ?, prize_sd = ? WHERE id = ?", (new_exp_m_cost, new_exp_m_prize, curr_bet_e["id"]))
+                                conn_m_up_exp.commit()
+                                conn_m_up_exp.close()
+                                
+                            st.success("✅ ¡Ajustes de todos los juegos guardados con éxito!")
+                            st.rerun()
+            
+            # --- NUEVA SECCIÓN DE ACCESO EXPRESO A EDICIÓN DE TIENDA ---
+            st.markdown("""
+            <div style="background: linear-gradient(135deg, #1e1b00 0%, #0d0d11 100%) !important; border: 2.5px solid #ffd700; border-radius: 12px; padding: 18px; margin-bottom: 15px; text-align: center; box-shadow: 0 4px 15px rgba(255, 215, 0, 0.25);">
+                <h3 style="color:#ffd700; margin-top:0; font-weight:900; letter-spacing:0.05em; font-size:1.2rem;">🛍️ CONSOLA DE EDICIÓN EXPRESA DE LA TIENDA</h3>
+                <p style="font-size:0.85rem; color:#a1a1aa; margin-bottom:0px;">Modifica costos de envío, valores de productos, combos de alimentos y pines digitales al instante de forma rápida.</p>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            with st.expander("🛍️ ABRIR PANEL DE EDICIÓN RÁPIDA DE LA TIENDA ALIANZA (EDITAR VALORES)", expanded=False):
+                st.subheader("🛒 Catálogo General de Precios de la Tienda")
+                st.write("Modifica el nombre, descripción, costo de tokens (SD) y tarifas de envío al instante. Los cambios se guardarán automáticamente en la base de datos.")
+                
+                try:
+                    conn_items_exp = get_db_connection()
+                    store_items_list_exp = pd.read_sql_query("SELECT id, name, description, price_sd, item_type, delivery_fee_sd FROM store_items", conn_items_exp)
+                    conn_items_exp.close()
+                    
+                    for idx_i_e, item_row_e in store_items_list_exp.iterrows():
+                        i_id_e = item_row_e['id']
+                        i_name_e = item_row_e['name']
+                        i_type_e = item_row_e['item_type']
+                        i_price_e = float(item_row_e['price_sd'])
+                        i_desc_e = item_row_e['description']
+                        i_deliv_e = float(item_row_e['delivery_fee_sd']) if item_row_e['delivery_fee_sd'] is not None else 0.0
+                        
+                        type_label_e = "🏆 Membresía VIP Alianza" if i_type_e == 'MEMBERSHIP' else ("🍔 Alimentos y Bebidas" if i_type_e == 'FOOD' else "🎁 Tarjeta de Regalo / Pin / Recarga")
+                        with st.container():
+                            st.write(f"<b>Editar Artículo: {i_name_e} ({type_label_e})</b>", unsafe_allow_html=True)
+                            with st.form(f"edit_express_store_item_form_{i_id_e}"):
+                                edit_name_e = st.text_input("Nombre del Artículo", value=i_name_e)
+                                edit_desc_e = st.text_area("Descripción", value=i_desc_e, height=80)
+                                edit_price_e = st.number_input("Costo del Artículo (SD)", value=i_price_e, min_value=0.0001, format="%.4f")
+                                edit_deliv_e = st.number_input("Tarifa de Envío / Domicilio (SD)", value=i_deliv_e, min_value=0.0, format="%.4f") if i_type_e == 'FOOD' else 0.0
+                                submit_item_edit_e = st.form_submit_button(f"💾 Guardar Cambios para '{i_name_e}'")
+                                
+                                if submit_item_edit_e:
+                                    if not edit_name_e.strip() or not edit_desc_e.strip():
+                                        st.error("⚠️ El nombre y la descripción no pueden estar vacíos.")
+                                    else:
+                                        update_store_item_price(i_id_e, edit_price_e, edit_name_e, edit_desc_e, edit_deliv_e)
+                                        st.success(f"✅ ¡Se han guardado los cambios para '{edit_name_e}' con éxito!")
+                                        st.rerun()
+                            st.markdown("<hr style='border-color: #ffd7001a;'>", unsafe_allow_html=True)
+                except Exception as e_exp:
+                    st.write("Cargando catálogo...")
+            
         pending_claims_count = len(get_pending_purchases())
         pending_rewards_count = len(get_pending_referral_rewards())
         pending_withdraws_count = len(get_pending_withdrawals())
