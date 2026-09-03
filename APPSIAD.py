@@ -403,11 +403,12 @@ def init_db():
         pass
 
     try:
-        cursor.execute("SELECT COUNT(*) FROM trivias")
+        cursor.execute("SELECT COUNT(*) FROM trivias WHERE question LIKE '%volar%'")
         if cursor.fetchone()[0] == 0:
+            cursor.execute("UPDATE trivias SET active = 0")
             cursor.execute("""
-                INSERT OR IGNORE INTO trivias (question, option_a, option_b, option_c, correct_option, entry_fee, prize_sd, active) VALUES 
-                ('¿Qué mamífero es conocido por ser el único capaz de volar de forma activa y sostenida?', 'La ardilla voladora', 'El murciélago', 'El ornitorrinco', 'B', 0.5, 1.5, 1)
+                INSERT INTO trivias (question, option_a, option_b, option_c, correct_option, entry_fee, prize_sd, active) VALUES 
+                ('¿Qué mamífero es conocido por ser el único capaz de volar de forma activa y sostenida?', 'La ardilla voladora', 'El murciélago', 'El ornitorrinco', 'B', 0.50, 1.50, 1)
             """)
     except Exception:
         pass
@@ -2710,7 +2711,7 @@ st.markdown(f"""
 
 if not st.session_state.logged_in:
     st.sidebar.title("🔐 Alianza CryptoWallet")
-    st.sidebar.markdown("<div style='background-color: #1e293b; padding: 6px 12px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 15px; text-align: center;'><span style='color: #ffd700; font-size: 0.85rem; font-weight: bold;'>🚀 Versión de la App: v53</span></div>", unsafe_allow_html=True)
+    st.sidebar.markdown("<div style='background-color: #1e293b; padding: 6px 12px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 15px; text-align: center;'><span style='color: #ffd700; font-size: 0.85rem; font-weight: bold;'>🚀 Versión de la App: v56</span></div>", unsafe_allow_html=True)
     menu = st.sidebar.selectbox("Seleccione una opción", ["Iniciar Sesión", "Registrarse"])
     
     if menu == "Iniciar Sesión":
@@ -2778,7 +2779,7 @@ if not st.session_state.logged_in:
 else:
     # Sidebar de usuario conectado con toques dorados
     st.sidebar.markdown(f"<h2 class='golden-title'>👋 {st.session_state.fullname}</h2>", unsafe_allow_html=True)
-    st.sidebar.markdown("<div style='background-color: #1e293b; padding: 6px 12px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 15px; text-align: center;'><span style='color: #ffd700; font-size: 0.85rem; font-weight: bold;'>🚀 Versión de la App: v53</span></div>", unsafe_allow_html=True)
+    st.sidebar.markdown("<div style='background-color: #1e293b; padding: 6px 12px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 15px; text-align: center;'><span style='color: #ffd700; font-size: 0.85rem; font-weight: bold;'>🚀 Versión de la App: v56</span></div>", unsafe_allow_html=True)
     st.sidebar.markdown(f"**Billetera ID (Código):** `{st.session_state.wallet_code}`")
     
     # Obtener el número de notificaciones pendientes
@@ -3808,6 +3809,9 @@ else:
         with tab_juegos:
             st.subheader("🎮 Centro de Micro-Juegos y Sorteos de Alta Rotación")
             st.write("Gasta tus fracciones de tokens para ganar grandes premios acumulados. ¡Toda la diversión en un solo lugar!")
+            
+            if st.session_state.sync_blockchain and user_bsc_wallet:
+                st.warning("⚠️ <b>Sincronización de MetaMask Activa:</b> Estás visualizando tu saldo real on-chain. Para jugar a los sorteos de Alianza, el sistema debitará y acreditará en tu <b>Saldo Local de la App</b>. Te recomendamos presionar el botón <b>❌ Desconectar</b> en Inicio para que veas tus saldos locales cambiar en vivo.")
         
             # Sub-tabs para organizar los 7 juegos
             tab_sub_spin, tab_sub_ppt, tab_sub_trivia, tab_sub_bets, tab_sub_auc, tab_sub_scratch, tab_sub_tip = st.tabs([
@@ -4335,6 +4339,7 @@ else:
                                 st.error(str(e))
 
     # --- SECCIÓN: COURIER Y CONDUCTORES (MENSAJERÍA Alianza) ---
+    elif choice == "🚚 Mensajería Alianza":
         st.markdown("<h1 class='golden-title'>🚚 Servicios de Mensajería y Móviles</h1>", unsafe_allow_html=True)
         st.write("Gestiona los pagos de envíos de encomiendas de forma directa y cancela tus cuotas semanales de móviles con descuentos especiales en tokens SD.")
         
@@ -4890,6 +4895,100 @@ else:
     # --- PANEL DEL PROPIETARIO ---
     elif choice == "👑 Panel del Propietario":
         st.markdown("<h1 class='golden-title'>👑 Consola del Propietario de la App</h1>", unsafe_allow_html=True)
+        
+        # --- NUEVA SECCIÓN DE ACCESO EXPRESO A CONFIGURACIÓN DE JUEGOS ---
+        st.markdown("""
+        <div style="background: linear-gradient(135deg, #091c12 0%, #0d0d11 100%) !important; border: 2.5px solid #ffd700; border-radius: 12px; padding: 18px; margin-top: 15px; margin-bottom: 15px; text-align: center; box-shadow: 0 4px 15px rgba(255, 215, 0, 0.25);">
+            <h3 style="color:#ffd700; margin-top:0; font-weight:900; letter-spacing:0.05em; font-size:1.2rem;">🎮 CONSOLA DE CONFIGURACIÓN RÁPIDA DE LOS JUEGOS</h3>
+            <p style="font-size:0.85rem; color:#a1a1aa; margin-bottom:0px;">Modifica costos de tickets, precios de entradas, premios y multiplicadores de ganancia de todos los juegos al instante.</p>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        with st.expander("🎮 ABRIR PANEL DE CONFIGURACIÓN RÁPIDA DE LOS JUEGOS (EDITAR VALORES)", expanded=False):
+            st.subheader("⚙️ Configuración y Edición de Valores de Juegos")
+            st.write("Modifica el valor de los tickets de entrada, precios y premios en tokens SIAD (SD) de todos los juegos interactivos de la aplicación.")
+            
+            # Form for express games config
+            r_cost_text_e, r_cost_e = get_game_setting('ruleta_cost', default_num=1.0)
+            r_prizes_e, _ = get_game_setting('ruleta_prizes', default_val='0.1,0.5,1.0,2.0,5.0,0.0')
+            r_prob_e, _ = get_game_setting('ruleta_prob', default_val='20,30,25,15,5,5')
+            
+            _, p_mult_e = get_game_setting('ppt_multiplier', default_num=1.90)
+            
+            _, s_cost_e = get_game_setting('scratch_cost', default_num=0.5)
+            s_prizes_e, _ = get_game_setting('scratch_prizes', default_val='0.0,0.2,0.5,1.0,3.0,10.0')
+            s_prob_e, _ = get_game_setting('scratch_prob', default_val='50,25,15,7,2,1')
+            
+            _, tip_cost_e = get_game_setting('crypto_tip_cost', default_num=0.2)
+            tip_text_e, _ = get_game_setting('crypto_tip', default_val='')
+            
+            curr_trivia_e = get_active_trivia()
+            curr_bet_e = get_active_sports_bet()
+            
+            with st.form("admin_games_express_config_form_v2"):
+                col_exp_g1, col_exp_g2 = st.columns(2)
+                with col_exp_g1:
+                    st.write("<b>🎡 La Ruleta (Lucky Spin):</b>", unsafe_allow_html=True)
+                    new_exp_r_cost = st.number_input("Costo de Giro de Ruleta (SD):", value=float(r_cost_e), min_value=0.0, format="%.2f", key="exp_r_cost_main")
+                    new_exp_r_prizes = st.text_input("Premios (6 valores separados por comas):", value=r_prizes_e, key="exp_r_prizes_main")
+                    new_exp_r_prob = st.text_input("Probabilidades (deben sumar 100):", value=r_prob_e, key="exp_r_prob_main")
+                    
+                    st.write("<b>🥊 Piedra, Papel o Tijera (PPT):</b>", unsafe_allow_html=True)
+                    new_exp_p_mult = st.number_input("Multiplicador de Ganancia de PPT (Ej: 1.90):", value=float(p_mult_e), min_value=1.0, max_value=3.0, format="%.2f", key="exp_p_mult_main")
+                    
+                    st.write("<b>🧠 Trivia Alianza Activa:</b>", unsafe_allow_html=True)
+                    new_exp_t_fee = st.number_input("Costo de Entrada a la Trivia (SD):", value=float(curr_trivia_e["entry_fee"]) if curr_trivia_e else 0.50, min_value=0.0, format="%.2f", key="exp_t_fee_main")
+                    new_exp_t_prize = st.number_input("Premio de la Trivia (SD):", value=float(curr_trivia_e["prize_sd"]) if curr_trivia_e else 1.50, min_value=0.0001, format="%.2f", key="exp_t_prize_main")
+                    
+                with col_exp_g2:
+                    st.write("<b>🎟️ Raspa y Gana (Scratch Cards):</b>", unsafe_allow_html=True)
+                    new_exp_s_cost = st.number_input("Costo de Tarjeta (SD):", value=float(s_cost_e), min_value=0.0, format="%.2f", key="exp_s_cost_main")
+                    new_exp_s_prizes = st.text_input("Premios (6 valores separados por comas):", value=s_prizes_e, key="exp_s_prizes_main")
+                    new_exp_s_prob = st.text_input("Probabilidades (deben sumar 100):", value=s_prob_e, key="exp_s_prob_main")
+                    
+                    st.write("<b>⚽ Pronósticos Deportivos (La Polla):</b>", unsafe_allow_html=True)
+                    new_exp_m_cost = st.number_input("Costo del Ticket de Pronóstico (SD):", value=float(curr_bet_e["ticket_cost"]) if curr_bet_e else 1.0, min_value=0.0, format="%.2f", key="exp_m_cost_main")
+                    new_exp_m_prize = st.number_input("Premio por Acierto (SD):", value=float(curr_bet_e["prize_sd"]) if curr_bet_e else 3.0, min_value=0.0001, format="%.2f", key="exp_m_prize_main")
+                    
+                    st.write("<b>🔮 Consejo Cripto:</b>", unsafe_allow_html=True)
+                    new_exp_tip_cost = st.number_input("Costo para desbloquear Consejo (SD):", value=float(tip_cost_e), min_value=0.0, format="%.2f", key="exp_tip_cost_main")
+                
+                submit_exp_games_config = st.form_submit_button("💾 Guardar Ajustes de Todos los Juegos")
+                
+                if submit_exp_games_config:
+                    r_probs_chk = [int(x) for x in new_exp_r_prob.split(',') if x]
+                    s_probs_chk = [int(x) for x in new_exp_s_prob.split(',') if x]
+                    
+                    if sum(r_probs_chk) != 100 or sum(s_probs_chk) != 100:
+                        st.error("⚠️ Las probabilidades de la Ruleta y del Raspa y Gana deben sumar exactamente 100.")
+                    elif len(new_exp_r_prizes.split(',')) != 6 or len(new_exp_s_prizes.split(',')) != 6:
+                        st.error("⚠️ Debes ingresar exactamente 6 valores de premios para la Ruleta y para el Raspa y Gana.")
+                    else:
+                        update_game_setting('ruleta_cost', '', new_exp_r_cost)
+                        update_game_setting('ruleta_prizes', new_exp_r_prizes, 0.0)
+                        update_game_setting('ruleta_prob', new_exp_r_prob, 0.0)
+                        update_game_setting('ppt_multiplier', '', new_exp_p_mult)
+                        update_game_setting('scratch_cost', '', new_exp_s_cost)
+                        update_game_setting('scratch_prizes', new_exp_s_prizes, 0.0)
+                        update_game_setting('scratch_prob', new_exp_s_prob, 0.0)
+                        update_game_setting('crypto_tip_cost', '', new_exp_tip_cost)
+                        
+                        if curr_trivia_e:
+                            conn_t_up_exp = get_db_connection()
+                            cursor_t_up_exp = conn_t_up_exp.cursor()
+                            cursor_t_up_exp.execute("UPDATE trivias SET entry_fee = ?, prize_sd = ? WHERE id = ?", (new_exp_t_fee, new_exp_t_prize, curr_trivia_e["id"]))
+                            conn_t_up_exp.commit()
+                            conn_t_up_exp.close()
+                            
+                        if curr_bet_e:
+                            conn_m_up_exp = get_db_connection()
+                            cursor_m_up_exp = conn_m_up_exp.cursor()
+                            cursor_m_up_exp.execute("UPDATE sports_bets SET ticket_cost = ?, prize_sd = ? WHERE id = ?", (new_exp_m_cost, new_exp_m_prize, curr_bet_e["id"]))
+                            conn_m_up_exp.commit()
+                            conn_m_up_exp.close()
+                            
+                        st.success("✅ ¡Ajustes de todos los juegos guardados con éxito!")
+                        st.rerun()
         
         # --- NUEVA SECCIÓN DE ACCESO EXPRESO A EDICIÓN DE TIENDA ---
         st.markdown("""
