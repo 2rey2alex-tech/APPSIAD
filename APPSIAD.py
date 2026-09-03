@@ -407,7 +407,7 @@ def init_db():
         if cursor.fetchone()[0] == 0:
             cursor.execute("""
                 INSERT OR IGNORE INTO trivias (question, option_a, option_b, option_c, correct_option, entry_fee, prize_sd, active) VALUES 
-                ('¿Cuál es el mecanismo de consenso principal de Binance Smart Chain (BSC)?', 'Proof of Work (PoW)', 'Proof of Staked Authority (PoSA)', 'Proof of Space (PoS)', 'B', 0.5, 1.5, 1)
+                ('¿Qué mamífero es conocido por ser el único capaz de volar de forma activa y sostenida?', 'La ardilla voladora', 'El murciélago', 'El ornitorrinco', 'B', 0.5, 1.5, 1)
             """)
     except Exception:
         pass
@@ -677,8 +677,9 @@ def buy_store_item(user_code, item_id):
         return False, f"Saldo de tokens SIAD (SD) insuficiente para realizar esta compra (Se requiere {format_num(total_cost_sd)} SD)."
         
     try:
-        # 4. Descontar balance de SD del usuario
+        # 4. Descontar balance de SD del usuario, sumarlo al del admin (99999)
         cursor.execute("UPDATE users SET balance = balance - ? WHERE wallet_code = ?", (total_cost_sd, user_code))
+        cursor.execute("UPDATE users SET balance = balance + ? WHERE wallet_code = '99999'", (total_cost_sd,))
         
         # 5. Registrar la compra en store_purchases
         cursor.execute("""
@@ -687,10 +688,10 @@ def buy_store_item(user_code, item_id):
         """, (user_code, item_id, total_cost_sd))
         purchase_id = cursor.lastrowid
         
-        # 6. Registrar una transacción ficticia para el historial de transacciones
+        # 6. Registrar la transacción en el historial de transacciones (User -> Admin)
         cursor.execute("""
             INSERT INTO transactions (sender_code, receiver_code, amount)
-            VALUES (?, 'SYSTEM_STORE', ?)
+            VALUES (?, '99999_STORE_BUY', ?)
         """, (user_code, total_cost_sd))
         
         conn.commit()
@@ -726,12 +727,13 @@ def deliver_store_purchase(purchase_id, code_delivered=""):
             # Si el artículo es membresía VIP, activar VIP en el usuario de inmediato
             if item_type == 'MEMBERSHIP':
                 cursor.execute("UPDATE users SET is_vip = 1 WHERE wallet_code = ?", (user_code,))
-                # ¡Devolver el valor de la membresía en tokens SD como cashback / reembolso de bienvenida!
+                # ¡Devolver el valor de la membresía en tokens SD como cashback / reembolso de bienvenida, deduciendo del admin 99999!
                 cursor.execute("UPDATE users SET balance = balance + ? WHERE wallet_code = ?", (price_sd, user_code))
+                cursor.execute("UPDATE users SET balance = balance - ? WHERE wallet_code = '99999'", (price_sd,))
                 # Registrar el reembolso en la tabla de transacciones
                 cursor.execute("""
                     INSERT INTO transactions (sender_code, receiver_code, amount)
-                    VALUES ('SYSTEM_STORE_REFUND', ?, ?)
+                    VALUES ('99999_STORE_REFUND', ?, ?)
                 """, (user_code, price_sd))
                 msg_notif = f"👑 <b>¡Membresía VIP Activada!</b> El administrador aprobó tu membresía VIP de Alianza. " \
                             f"Por ser un beneficio VIP de bienvenida, te hemos reembolsado el 100% de su valor: <b>{format_num(price_sd)} SD</b> ($30.00 USD) de inmediato a tu cuenta. " \
@@ -768,11 +770,15 @@ def reject_store_purchase(purchase_id):
     if purchase:
         user_code, price_sd, item_name = purchase
         try:
-            # Reembolsar los tokens SD al usuario
+            # Reembolsar los tokens SD al usuario, descontándolos de la cuenta del admin (99999)
             cursor.execute("UPDATE users SET balance = balance + ? WHERE wallet_code = ?", (price_sd, user_code))
+            cursor.execute("UPDATE users SET balance = balance - ? WHERE wallet_code = '99999'", (price_sd,))
             
-            # Revertir la transacción de la tabla de transacciones
-            cursor.execute("DELETE FROM transactions WHERE sender_code = ? AND receiver_code = 'SYSTEM_STORE' AND amount = ? ORDER BY timestamp DESC LIMIT 1", (user_code, price_sd))
+            # Registrar transacción de devolución en transactions (Admin -> User)
+            cursor.execute("""
+                INSERT INTO transactions (sender_code, receiver_code, amount)
+                VALUES ('99999_STORE_REFUND', ?, ?)
+            """, (user_code, price_sd))
             
             # Actualizar estado a REJECTED
             cursor.execute("UPDATE store_purchases SET status = 'REJECTED' WHERE id = ?", (purchase_id,))
@@ -3857,21 +3863,22 @@ else:
                                 conn_g = get_db_connection()
                                 cursor_g = conn_g.cursor()
                                 try:
-                                    # Descontar costo y abonar premio
+                                    # Cobrar tarifa: del usuario al admin (99999)
                                     cursor_g.execute("UPDATE users SET balance = balance - ? WHERE wallet_code = ?", (spin_cost, st.session_state.wallet_code))
-                                    cursor_g.execute("UPDATE users SET balance = balance + ? WHERE wallet_code = ?", (won_prize, st.session_state.wallet_code))
-                                    cursor_g.execute("UPDATE users SET balance = balance + ? WHERE wallet_code = '99999'", (spin_cost - won_prize,))
-                                
-                                    # Registrar transacciones
+                                    cursor_g.execute("UPDATE users SET balance = balance + ? WHERE wallet_code = '99999'", (spin_cost,))
+                                    # Registrar transacción
                                     cursor_g.execute("""
                                         INSERT INTO transactions (sender_code, receiver_code, amount)
-                                        VALUES (?, 'SYSTEM_LUCKY_SPIN_FEE', ?)
+                                        VALUES (?, '99999_LUCKY_SPIN_FEE', ?)
                                     """, (st.session_state.wallet_code, spin_cost))
-                                
+                                    
                                     if won_prize > 0:
+                                        # Pagar premio: del admin (99999) al usuario
+                                        cursor_g.execute("UPDATE users SET balance = balance - ? WHERE wallet_code = '99999'", (won_prize,))
+                                        cursor_g.execute("UPDATE users SET balance = balance + ? WHERE wallet_code = ?", (won_prize, st.session_state.wallet_code))
                                         cursor_g.execute("""
                                             INSERT INTO transactions (sender_code, receiver_code, amount)
-                                            VALUES ('SYSTEM_LUCKY_SPIN_REWARD', ?, ?)
+                                            VALUES ('99999_LUCKY_SPIN_REWARD', ?, ?)
                                         """, (st.session_state.wallet_code, won_prize))
                                     
                                     conn_g.commit()
@@ -3885,7 +3892,8 @@ else:
                                     else:
                                         st.warning("😢 Esta vez no tuviste suerte y cayó en 0 SD. ¡Intenta de nuevo, la suerte cambia en un segundo!")
                                     
-                                    time.sleep(1.0)
+                                    # Letrero visible por exactamente 4 segundos
+                                    time.sleep(4.0)
                                     st.rerun()
                                 except Exception as e:
                                     conn_g.rollback()
@@ -3928,38 +3936,50 @@ else:
                                 conn_p = get_db_connection()
                                 cursor_p = conn_p.cursor()
                                 try:
+                                    # 1. Cobrar la apuesta inicial: de usuario al admin (99999)
+                                    cursor_p.execute("UPDATE users SET balance = balance - ? WHERE wallet_code = ?", (bet_amount, st.session_state.wallet_code))
+                                    cursor_p.execute("UPDATE users SET balance = balance + ? WHERE wallet_code = '99999'", (bet_amount,))
+                                    cursor_p.execute("""
+                                        INSERT INTO transactions (sender_code, receiver_code, amount)
+                                        VALUES (?, '99999_PPT_BET', ?)
+                                    """, (st.session_state.wallet_code, bet_amount))
+
                                     if result == "WIN":
                                         won_amt = bet_amount * ppt_mult
-                                        net_win = won_amt - bet_amount
-                                    
-                                        # Descontar del admin, abonar al usuario
-                                        cursor_p.execute("UPDATE users SET balance = balance + ? WHERE wallet_code = ?", (net_win, st.session_state.wallet_code))
-                                        cursor_p.execute("UPDATE users SET balance = balance - ? WHERE wallet_code = '99999'", (net_win,))
-                                    
+                                        # Pagar recompensa completa: del admin (99999) al usuario
+                                        cursor_p.execute("UPDATE users SET balance = balance - ? WHERE wallet_code = '99999'", (won_amt,))
+                                        cursor_p.execute("UPDATE users SET balance = balance + ? WHERE wallet_code = ?", (won_amt, st.session_state.wallet_code))
+                                        
                                         cursor_p.execute("""
                                             INSERT INTO transactions (sender_code, receiver_code, amount)
-                                            VALUES ('SYSTEM_PPT_WIN', ?, ?)
-                                        """, (st.session_state.wallet_code, net_win))
+                                            VALUES ('99999_PPT_REWARD', ?, ?)
+                                        """, (st.session_state.wallet_code, won_amt))
                                     
                                         st.balloons()
                                         st.success(f"🏆 <b>¡GANASTE EL DUELO!</b> Tu oponente lanzó <b>{bot_move}</b>. Has vencido con <b>{chosen_move}</b> y te has ganado <b>{format_num(won_amt)} SD</b>.")
                                     elif result == "DRAW":
-                                        st.info(f"🤝 <b>¡HUBO UN EMPATE!</b> Tu oponente también lanzó <b>{bot_move}</b>. Se te reembolsan tus <b>{format_num(bet_amount)} SD</b> intactos.")
-                                    else:
-                                        # Descontar del usuario, abonar al admin
-                                        cursor_p.execute("UPDATE users SET balance = balance - ? WHERE wallet_code = ?", (bet_amount, st.session_state.wallet_code))
-                                        cursor_p.execute("UPDATE users SET balance = balance + ? WHERE wallet_code = '99999'", (bet_amount,))
-                                    
+                                        # Devolver la apuesta completa: de admin (99999) al usuario
+                                        cursor_p.execute("UPDATE users SET balance = balance - ? WHERE wallet_code = '99999'", (bet_amount,))
+                                        cursor_p.execute("UPDATE users SET balance = balance + ? WHERE wallet_code = ?", (bet_amount, st.session_state.wallet_code))
+                                        
                                         cursor_p.execute("""
                                             INSERT INTO transactions (sender_code, receiver_code, amount)
-                                            VALUES (?, 'SYSTEM_PPT_LOSE', ?)
+                                            VALUES ('99999_PPT_DRAW_REFUND', ?, ?)
+                                        """, (st.session_state.wallet_code, bet_amount))
+                                        
+                                        st.info(f"🤝 <b>¡HUBO UN EMPATE!</b> Tu oponente también lanzó <b>{bot_move}</b>. Se te reembolsan tus <b>{format_num(bet_amount)} SD</b> intactos.")
+                                    else: # LOSE
+                                        cursor_p.execute("""
+                                            INSERT INTO transactions (sender_code, receiver_code, amount)
+                                            VALUES (?, '99999_PPT_LOSE', ?)
                                         """, (st.session_state.wallet_code, bet_amount))
                                     
                                         st.error(f"💀 <b>¡HAS SIDO DERROTADO!</b> Tu oponente lanzó <b>{bot_move}</b> y venció a tu <b>{chosen_move}</b>. Perdiste <b>{format_num(bet_amount)} SD</b>.")
                                     
                                     conn_p.commit()
                                     conn_p.close()
-                                    time.sleep(1.0)
+                                    # Esperar exactamente 4 segundos para mostrar letrero de resultado
+                                    time.sleep(4.0)
                                     st.rerun()
                                 except Exception as e:
                                     conn_p.rollback()
@@ -3998,7 +4018,14 @@ else:
                         if st.button("🧠 Registrar Mi Respuesta", key=f"submit_trivia_btn_{trivia['id']}"):
                             success_t, msg_t = play_trivia(st.session_state.wallet_code, trivia['id'], user_ans_letter)
                             if success_t:
-                                st.success(msg_t)
+                                if "incorrecta" in msg_t or "😢" in msg_t:
+                                    st.error(msg_t)
+                                else:
+                                    st.balloons()
+                                    st.success(msg_t)
+                                # Letrero visible por exactamente 4 segundos
+                                import time
+                                time.sleep(4.0)
                                 st.rerun()
                             else:
                                 st.error(msg_t)
@@ -4110,9 +4137,32 @@ else:
                             success_p_b, msg_p_b = place_penny_bid(st.session_state.wallet_code, auc["id"])
                             if success_p_b:
                                 st.success(msg_p_b)
+                                import time
+                                time.sleep(4.0)
                                 st.rerun()
                             else:
                                 st.error(msg_p_b)
+                    
+                    # Mostrar tabla de participantes y pujas recientes
+                    st.markdown("---")
+                    st.write("<b>📋 Participantes y Ofertas Recientes en esta Subasta:</b>", unsafe_allow_html=True)
+                    try:
+                        conn_bids = get_db_connection()
+                        bids_df = pd.read_sql_query("""
+                            SELECT t.timestamp as 'Fecha/Hora', u.fullname as 'Participante', u.wallet_code as 'ID Billetera', t.amount as 'Puja (SD)'
+                            FROM transactions t
+                            LEFT JOIN users u ON t.sender_code = u.wallet_code
+                            WHERE t.receiver_code = '99999_AUCTION_BID_FEE' OR t.receiver_code = 'SYSTEM_AUCTION_BID_FEE'
+                            ORDER BY t.timestamp DESC LIMIT 15
+                        """, conn_bids)
+                        conn_bids.close()
+                        
+                        if len(bids_df) == 0:
+                            st.info("No hay pujas registradas todavía. ¡Sé el primero en pujar por este artículo!")
+                        else:
+                            st.dataframe(bids_df, use_container_width=True)
+                    except Exception as e_bids:
+                        st.write("Cargando tabla de pujas...")
 
             # ----------------- JUEGO 6: RASPA Y GANA DIGITAL (Scratch Cards) -----------------
             with tab_sub_scratch:
@@ -4126,15 +4176,29 @@ else:
             
                 st.write(f"Adquiere una tarjeta virtual raspa y gana por solo **{format_num(scratch_cost)} SD**. Revela 3 casillas iguales para ganar hasta **{format_num(max(s_prizes))} SD**.")
             
+                if "scratch_game_res" not in st.session_state:
+                    st.session_state.scratch_game_res = None
+
                 col_sc_l, col_sc_r = st.columns([1, 1])
                 with col_sc_l:
-                    st.markdown(f"""
-                    <div class="card" style="border-top: 3px solid #10b981; text-align:center;">
-                        <div style="font-size: 1.5rem; color:#10b981; font-weight:800;">ALIANZA SCRATCH</div>
+                    if st.session_state.scratch_game_res:
+                        res_data = st.session_state.scratch_game_res
+                        border_clr = "#10b981" if res_data["won_amt"] > 0 else "#ef4444"
+                        st.markdown(f"""
+                        <div class="card" style="border: 2px solid {border_clr}; text-align:center; background: linear-gradient(135deg, #0d0d11 0%, #15151e 100%) !important;">
+                            <div style="font-size: 1.5rem; color:#ffd700; font-weight:800;">ALIANZA SCRATCH</div>
+                            <p style="font-size:0.82rem; color:#a1a1aa; margin:5px 0;">¡Tarjeta raspada!</p>
+                            <div style="background-color:#050507; border: 2px solid {border_clr}; padding:15px; margin-top:10px; font-size:2.2rem; letter-spacing:0.15em; font-weight:bold; border-radius:6px; color:#ffffff;">{res_data["emojis"]}</div>
+                        </div>
+                        """, unsafe_allow_html=True)
+                    else:
+                        st.markdown(f"""
+                        <div class="card" style="border-top: 3px solid #10b981; text-align:center;">
+                            <div style="font-size: 1.5rem; color:#10b981; font-weight:800;">ALIANZA SCRATCH</div>
                             <p style="font-size:0.82rem; color:#a1a1aa; margin:5px 0;">¿Tendrás las tres coronas ganadoras de la suerte?</p>
                             <div style="background-color:#0d0d11; border: 2px dashed #ffd70044; padding:15px; margin-top:10px; font-size:2.0rem; letter-spacing:0.3em; font-weight:bold; border-radius:6px; color:#5f5f6e;">❓ ❓ ❓</div>
-                    </div>
-                    """, unsafe_allow_html=True)
+                        </div>
+                        """, unsafe_allow_html=True)
                 with col_sc_r:
                     if st.button("🎟️ Comprar y Raspar Tarjeta", key="play_scratch_btn"):
                         if balance < scratch_cost:
@@ -4152,11 +4216,9 @@ else:
                                 # Generar combinación visual de emojis
                                 winning_emojis = ["👑", "⭐", "💎", "🍎", "🔥", "🍀"]
                                 if won_amt_s > 0:
-                                    # 3 de un mismo tipo
                                     matching_emoji = random.choice(winning_emojis)
                                     display_emojis = f"{matching_emoji} {matching_emoji} {matching_emoji}"
                                 else:
-                                    # Diferentes
                                     shuffled = list(winning_emojis)
                                     random.shuffle(shuffled)
                                     display_emojis = f"{shuffled[0]} {shuffled[1]} {shuffled[2]}"
@@ -4164,31 +4226,33 @@ else:
                                 conn_sc = get_db_connection()
                                 cursor_sc = conn_sc.cursor()
                                 try:
-                                    # Registrar costos y cobros
+                                    # Cobrar el raspadito: de usuario a admin (99999)
                                     cursor_sc.execute("UPDATE users SET balance = balance - ? WHERE wallet_code = ?", (scratch_cost, st.session_state.wallet_code))
-                                    cursor_sc.execute("UPDATE users SET balance = balance + ? WHERE wallet_code = ?", (won_amt_s, st.session_state.wallet_code))
-                                    cursor_sc.execute("UPDATE users SET balance = balance + ? WHERE wallet_code = '99999'", (scratch_cost - won_amt_s,))
-                                
+                                    cursor_sc.execute("UPDATE users SET balance = balance + ? WHERE wallet_code = '99999'", (scratch_cost,))
+                                    
                                     cursor_sc.execute("""
                                         INSERT INTO transactions (sender_code, receiver_code, amount)
-                                        VALUES (?, 'SYSTEM_SCRATCH_FEE', ?)
+                                        VALUES (?, '99999_SCRATCH_FEE', ?)
                                     """, (st.session_state.wallet_code, scratch_cost))
                                 
                                     if won_amt_s > 0:
+                                        # Pagar premio: del admin (99999) al usuario
+                                        cursor_sc.execute("UPDATE users SET balance = balance - ? WHERE wallet_code = '99999'", (won_amt_s,))
+                                        cursor_sc.execute("UPDATE users SET balance = balance + ? WHERE wallet_code = ?", (won_amt_s, st.session_state.wallet_code))
+                                        
                                         cursor_sc.execute("""
                                             INSERT INTO transactions (sender_code, receiver_code, amount)
-                                            VALUES ('SYSTEM_SCRATCH_REWARD', ?, ?)
+                                            VALUES ('99999_SCRATCH_REWARD', ?, ?)
                                         """, (st.session_state.wallet_code, won_amt_s))
                                     
                                     conn_sc.commit()
                                     conn_sc.close()
                                 
-                                    st.markdown(f"""
-                                    <div class="card" style="border:2px solid #ffd700; text-align:center; background:linear-gradient(135deg, #201a00 0%, #0d0d11 100%) !important;">
-                                        <div style="font-size:2.2rem; margin:10px 0; letter-spacing:0.2em;">{display_emojis}</div>
-                                    </div>
-                                    """, unsafe_allow_html=True)
-                                
+                                    st.session_state.scratch_game_res = {
+                                        "emojis": display_emojis,
+                                        "won_amt": won_amt_s
+                                    }
+                                    
                                     if won_amt_s > scratch_cost:
                                         st.balloons()
                                         st.success(f"🎉 ¡Felicidades! Tres figuras idénticas coinciden. Has ganado un premio de <b>{format_num(won_amt_s)} SD</b>.")
@@ -4197,7 +4261,8 @@ else:
                                     else:
                                         st.warning("😢 No coincidieron las figuras. ¡Compra otra tarjeta y cambia tu suerte en el próximo raspadito!")
                                     
-                                    time.sleep(1.0)
+                                    # Esperar exactamente 4 segundos para que se vea el letrero
+                                    time.sleep(4.0)
                                     st.rerun()
                                 except Exception as e:
                                     conn_sc.rollback()
@@ -4614,93 +4679,190 @@ else:
 
     # --- PERFIL ---
     elif choice == "👤 Mi Perfil":
-        st.markdown("<h1 class='golden-title'>👤 Configuración de Perfil</h1>", unsafe_allow_html=True)
-        col_prof, col_pwd = st.columns(2)
-        with col_prof:
-            # Si el usuario es VIP, mostrar insignia llamativa
-            if is_vip_user == 1:
-                st.markdown("""
-                <div style="display: flex; align-items: center; gap: 15px; margin-bottom: 15px; background: linear-gradient(135deg, #201a00 0%, #0d0d11 100%) !important; padding: 15px; border-radius: 12px; border: 1px solid #ffd700;">
-                    <div style="flex-shrink: 0;">
-                """, unsafe_allow_html=True)
-                st.image(f"data:image/jpeg;base64,{VIP_BADGE_B64}", width=70)
-                st.markdown("""
+        st.markdown("<h1 class='golden-title'>👤 Mi Perfil y Cuenta</h1>", unsafe_allow_html=True)
+        
+        tab_perf_config, tab_perf_history = st.tabs(["👤 Configuración de Cuenta", "📋 Historial Completo de Movimientos"])
+        
+        with tab_perf_history:
+            st.markdown("### 📋 Historial Completo de Movimientos")
+            st.write("Consulta el registro detallado de todas tus actividades de red, transacciones de la tienda, recargas y participación en juegos de Alianza.")
+            
+            try:
+                df_all_tx = get_transaction_history(st.session_state.wallet_code)
+                if len(df_all_tx) == 0:
+                    st.info("No hay movimientos registrados en tu cuenta todavía.")
+                else:
+                    decoded_txs = []
+                    for idx_tx, row_tx in df_all_tx.iterrows():
+                        s_code = row_tx['sender_code']
+                        r_code = row_tx['receiver_code']
+                        amt = float(row_tx['amount'])
+                        tstamp = row_tx['timestamp']
+                        
+                        concept = "Transacción General"
+                        tx_type = "Otros"
+                        amount_str = f"{format_num(amt)} SD"
+                        
+                        # Determinar tipo e intermediario
+                        if s_code == st.session_state.wallet_code:
+                            tx_type = "🔴 Gasto / Envío"
+                            if r_code == '99999_LUCKY_SPIN_FEE':
+                                concept = "Giro de Ruleta (Lucky Spin)"
+                            elif r_code == '99999_PPT_BET':
+                                concept = "Apuesta en Piedra, Papel o Tijera contra el Bot"
+                            elif r_code == '99999_PPT_LOSE':
+                                concept = "Apuesta Perdida en Piedra, Papel o Tijera"
+                            elif r_code == '99999_TRIVIA_FEE':
+                                concept = "Entrada a Trivia Alianza"
+                            elif r_code == '99999_SPORTS_TICKET':
+                                concept = "Compra de Ticket de Pronóstico (La Polla)"
+                            elif r_code == '99999_AUCTION_BID_FEE':
+                                concept = "Puja en Subasta de Centavos"
+                            elif r_code == '99999_SCRATCH_FEE':
+                                concept = "Compra de Tarjeta Raspa y Gana"
+                            elif r_code == '99999_TIP_UNLOCK':
+                                concept = "Desbloqueo de Consejo Millonario Cripto"
+                            elif r_code == 'SYSTEM_STORE' or r_code == '99999_STORE_BUY':
+                                concept = "Compra en Tienda Alianza"
+                            elif r_code == '99999':
+                                concept = "Envío directo de tokens al Administrador (Cuenta Madre)"
+                            elif r_code == 'SWAP_COP':
+                                concept = "Swap / Liquidación de Tokens SD a Pesos (COP)"
+                                amount_str = f"-{format_num(amt)} SD"
+                            elif r_code == '99999_COP':
+                                concept = "Pago de Cuota Semanal en Pesos (COP)"
+                            else:
+                                concept = f"Envío de tokens directo al usuario {r_code}"
+                        elif r_code == st.session_state.wallet_code:
+                            tx_type = "🟢 Ingreso / Premio"
+                            if s_code == '99999_LUCKY_SPIN_REWARD':
+                                concept = "Premio de Ruleta de la Fortuna (Lucky Spin)"
+                            elif s_code == '99999_PPT_REWARD':
+                                concept = "Premio de Piedra, Papel o Tijera"
+                            elif s_code == '99999_PPT_DRAW_REFUND':
+                                concept = "Reembolso por Empate en Piedra, Papel o Tijera"
+                            elif s_code == '99999_TRIVIA_REWARD':
+                                concept = "Premio por Acierto en Trivia Alianza"
+                            elif s_code == '99999_SPORTS_REWARD':
+                                concept = "Premio Ganado en Pronósticos Deportivos (La Polla)"
+                            elif s_code == '99999_SCRATCH_REWARD':
+                                concept = "Premio de Tarjeta Raspa y Gana"
+                            elif s_code == 'SYSTEM_STORE_REFUND' or s_code == '99999_STORE_REFUND':
+                                concept = "Reembolso o Bono de la Tienda Alianza"
+                            elif s_code == '99999':
+                                concept = "Acreditación directa enviada por el Administrador"
+                            else:
+                                concept = f"Recepción directa de tokens del usuario {s_code}"
+                                
+                        decoded_txs.append({
+                            "Fecha/Hora": tstamp,
+                            "Movimiento": tx_type,
+                            "Descripción": concept,
+                            "Monto (SD)": amount_str
+                        })
+                        
+                    df_decoded = pd.DataFrame(decoded_txs)
+                    st.dataframe(df_decoded.iloc[::-1], use_container_width=True)
+            except Exception as e_tx:
+                st.info("Cargando historial de movimientos...")
+
+        with tab_perf_config:
+            col_prof, col_pwd = st.columns(2)
+            with col_prof:
+                # Si el usuario es VIP, mostrar insignia llamativa
+                if is_vip_user == 1:
+                    st.markdown("""
+                    <div style="display: flex; align-items: center; gap: 15px; margin-bottom: 15px; background: linear-gradient(135deg, #201a00 0%, #0d0d11 100%) !important; padding: 15px; border-radius: 12px; border: 1px solid #ffd700;">
+                        <div style="flex-shrink: 0;">
+                    """, unsafe_allow_html=True)
+                    st.image(f"data:image/jpeg;base64,{VIP_BADGE_B64}", width=70)
+                    st.markdown("""
+                        </div>
+                        <div>
+                            <h3 style="margin: 0; color: #ffd700; font-weight: 800; font-size: 1.25rem;">👑 MIEMBRO VIP ALIANZA</h3>
+                            <p style="margin: 4px 0 0 0; color: #ffffff; font-size: 0.85rem; line-height: 1.2rem;">Comisiones de retiro del 1% y ganancias de referidos del 25% de por vida.</p>
+                        </div>
                     </div>
-                    <div>
-                        <h3 style="margin: 0; color: #ffd700; font-weight: 800; font-size: 1.25rem;">👑 MIEMBRO VIP ALIANZA</h3>
-                        <p style="margin: 4px 0 0 0; color: #ffffff; font-size: 0.85rem; line-height: 1.2rem;">Comisiones de retiro del 1% y ganancias de referidos del 25% de por vida.</p>
-                    </div>
+                    """, unsafe_allow_html=True)
+                
+                st.markdown(f"""
+                <div class="card">
+                    <h3 style="margin-top:0; color: #ffd700;">📋 Información de Cuenta</h3>
+                    <hr style="border-color: #ffd700; margin: 15px 0;">
+                    <p><b>Nombre Completo:</b> {st.session_state.fullname}</p>
+                    <p><b>Usuario:</b> {st.session_state.username}</p>
+                    <p><b>Correo Electrónico:</b> {st.session_state.email}</p>
+                    <p><b>Billetera ID (Inmutable):</b> <code style="font-size: 1.15rem; color:#10b981;">{st.session_state.wallet_code}</code></p>
+                    <hr style="border-color: #232d42; margin: 15px 0;">
+                    <p style="font-size:0.9rem; color:#ffd700;"><b>¿Necesitas más tokens?</b></p>
+                    <p style="font-size:0.85rem; color:#a1a1aa; margin-bottom:15px;">Puedes adquirir tokens directamente haciendo una transferencia e ingresando tu comprobante de pago.</p>
                 </div>
                 """, unsafe_allow_html=True)
-            st.markdown(f"""
-            <div class="card">
-                <h3 style="margin-top:0; color: #ffd700;">📋 Información de Cuenta</h3>\n                <hr style="border-color: #ffd700; margin: 15px 0;">\n                <p><b>Nombre Completo:</b> {st.session_state.fullname}</p>\n                <p><b>Usuario:</b> {st.session_state.username}</p>\n                <p><b>Correo Electrónico:</b> {st.session_state.email}</p>\n                <p><b>Billetera ID (Inmutable):</b> <code style="font-size: 1.15rem; color:#10b981;">{st.session_state.wallet_code}</code></p>\n                <hr style="border-color: #232d42; margin: 15px 0;">\n                <p style="font-size:0.9rem; color:#ffd700;"><b>¿Necesitas más tokens?</b></p>\n                <p style="font-size:0.85rem; color:#a1a1aa; margin-bottom:15px;">Puedes adquirir tokens directamente haciendo una transferencia e ingresando tu comprobante de pago.</p>\n            </div>
-            """, unsafe_allow_html=True)
-            
-            # Formulario dinámico para guardar y actualizar el Nequi del propio usuario o del administrador (cuenta madre)
-            user_nequi_val = get_user_nequi(st.session_state.wallet_code)
-            is_admin_user = (st.session_state.username == 'admin' or st.session_state.wallet_code == '99999')
-            with st.form("edit_nequi_form"):
-                if is_admin_user:
-                    st.write("<b>📱 Nequi Oficial de Recaudación (Cuenta Madre)</b>", unsafe_allow_html=True)
-                    new_user_nequi = st.text_input("Ingresa el número de Nequi oficial para recibir pagos de usuarios:", value=token['nequi_number'], max_chars=11, placeholder="Ej. 3001234567")
-                else:
-                    st.write("<b>📱 Mi Cuenta de Nequi</b>", unsafe_allow_html=True)
-                    new_user_nequi = st.text_input("Ingresa tu número de celular Nequi para recibir retiros:", value=user_nequi_val, max_chars=11, placeholder="Ej. 3001234567")
                 
-                submit_nequi = st.form_submit_button("Guardar Nequi")
-                
-                if submit_nequi:
-                    if new_user_nequi and (len(new_user_nequi) < 10 or not new_user_nequi.isdigit()):
-                        st.error("⚠️ Por favor ingresa un número de Nequi válido de 10 dígitos.")
+                # Formulario dinámico para guardar y actualizar el Nequi del propio usuario o del administrador (cuenta madre)
+                user_nequi_val = get_user_nequi(st.session_state.wallet_code)
+                is_admin_user = (st.session_state.username == 'admin' or st.session_state.wallet_code == '99999')
+                with st.form("edit_nequi_form"):
+                    if is_admin_user:
+                        st.write("<b>📱 Nequi Oficial de Recaudación (Cuenta Madre)</b>", unsafe_allow_html=True)
+                        new_user_nequi = st.text_input("Ingresa el número de Nequi oficial para recibir pagos de usuarios:", value=token['nequi_number'], max_chars=11, placeholder="Ej. 3001234567")
                     else:
-                        if is_admin_user:
-                            update_global_nequi(new_user_nequi)
-                            st.success("✅ ¡El Nequi de recaudación oficial (Cuenta Madre) ha sido actualizado!")
+                        st.write("<b>📱 Mi Cuenta de Nequi</b>", unsafe_allow_html=True)
+                        new_user_nequi = st.text_input("Ingresa tu número de celular Nequi para recibir retiros:", value=user_nequi_val, max_chars=11, placeholder="Ej. 3001234567")
+                    
+                    submit_nequi = st.form_submit_button("Guardar Nequi")
+                    
+                    if submit_nequi:
+                        if new_user_nequi and (len(new_user_nequi) < 10 or not new_user_nequi.isdigit()):
+                            st.error("⚠️ Por favor ingresa un número de Nequi válido de 10 dígitos.")
                         else:
-                            update_user_nequi(st.session_state.wallet_code, new_user_nequi)
-                            st.success("✅ ¡Tu cuenta de Nequi ha sido actualizada!")
-                        st.rerun()
+                            if is_admin_user:
+                                update_global_nequi(new_user_nequi)
+                                st.success("✅ ¡El Nequi de recaudación oficial (Cuenta Madre) ha sido actualizado!")
+                            else:
+                                update_user_nequi(st.session_state.wallet_code, new_user_nequi)
+                                st.success("✅ ¡Tu cuenta de Nequi ha sido actualizada!")
+                            st.rerun()
 
-            # Formulario para guardar y actualizar la Billetera BSC (Real Token)
-            user_bsc_wallet_val = get_user_bsc_address(st.session_state.wallet_code)
-            with st.form("edit_bsc_wallet_form"):
-                st.write("<b>🪙 Dirección de Billetera Real (Binance Smart Chain - BSC)</b>", unsafe_allow_html=True)
-                new_bsc_wallet = st.text_input("Ingresa tu dirección de MetaMask / Trust Wallet (0x...):", value=user_bsc_wallet_val, placeholder="Ej. 0x1234567890123456789012345678901234567890")
-                submit_bsc = st.form_submit_button("Sincronizar Billetera BSC")
-                
-                if submit_bsc:
-                    if new_bsc_wallet and (not new_bsc_wallet.strip().startswith("0x") or len(new_bsc_wallet.strip()) != 42):
-                        st.error("⚠️ Por favor ingresa una dirección de billetera BSC (0x...) válida de 42 caracteres.")
-                    else:
-                        update_user_bsc_address(st.session_state.wallet_code, new_bsc_wallet.strip())
-                        st.success("✅ ¡Tu dirección de billetera BSC ha sido sincronizada! Tu saldo de tokens reales ahora se actualizará en tiempo real.")
-                        st.rerun()
-            
-            if st.button("Ir a Comprar SD"):
-                st.info("Utiliza la barra lateral e ingresa al menú '📥 Comprar SD'")
-            
-        with col_pwd:
-            st.subheader("🔒 Cambiar Contraseña")
-            with st.form("pwd_form"):
-                o_pwd = st.text_input("Contraseña Actual", type="password")
-                n_pwd = st.text_input("Nueva Contraseña", type="password")
-                c_pwd = st.text_input("Confirmar Nueva Contraseña", type="password")
-                sub_p = st.form_submit_button("Actualizar Contraseña")
-                
-                if sub_p:
-                    if not (o_pwd and n_pwd and c_pwd):
-                        st.warning("Todos los campos son obligatorios.")
-                    elif n_pwd != c_pwd:
-                        st.error("Las nuevas contraseñas no coinciden.")
-                    elif len(n_pwd) < 6:
-                        st.error("La nueva contraseña debe tener al menos 6 caracteres.")
-                    else:
-                        succ, msg = change_user_password(st.session_state.username, o_pwd, n_pwd)
-                        if succ:
-                            st.success(msg)
+                # Formulario para guardar y actualizar la Billetera BSC (Real Token)
+                user_bsc_wallet_val = get_user_bsc_address(st.session_state.wallet_code)
+                with st.form("edit_bsc_wallet_form"):
+                    st.write("<b>🪙 Dirección de Billetera Real (Binance Smart Chain - BSC)</b>", unsafe_allow_html=True)
+                    new_bsc_wallet = st.text_input("Ingresa tu dirección de MetaMask / Trust Wallet (0x...):", value=user_bsc_wallet_val, placeholder="Ej. 0x1234567890123456789012345678901234567890")
+                    submit_bsc = st.form_submit_button("Sincronizar Billetera BSC")
+                    
+                    if submit_bsc:
+                        if new_bsc_wallet and (not new_bsc_wallet.strip().startswith("0x") or len(new_bsc_wallet.strip()) != 42):
+                            st.error("⚠️ Por favor ingresa una dirección de billetera BSC (0x...) válida de 42 caracteres.")
                         else:
-                            st.error(msg)
+                            update_user_bsc_address(st.session_state.wallet_code, new_bsc_wallet.strip())
+                            st.success("✅ ¡Tu dirección de billetera BSC ha sido sincronizada! Tu saldo de tokens reales ahora se actualizará en tiempo real.")
+                            st.rerun()
+                
+                if st.button("Ir a Comprar SD"):
+                    st.info("Utiliza la barra lateral e ingresa al menú '📥 Comprar SD'")
+                
+            with col_pwd:
+                st.subheader("🔒 Cambiar Contraseña")
+                with st.form("pwd_form"):
+                    o_pwd = st.text_input("Contraseña Actual", type="password")
+                    n_pwd = st.text_input("Nueva Contraseña", type="password")
+                    c_pwd = st.text_input("Confirmar Nueva Contraseña", type="password")
+                    sub_p = st.form_submit_button("Actualizar Contraseña")
+                    
+                    if sub_p:
+                        if not (o_pwd and n_pwd and c_pwd):
+                            st.warning("Todos los campos son obligatorios.")
+                        elif n_pwd != c_pwd:
+                            st.error("Las nuevas contraseñas no coinciden.")
+                        elif len(n_pwd) < 6:
+                            st.error("La nueva contraseña debe tener al menos 6 caracteres.")
+                        else:
+                            succ, msg = change_user_password(st.session_state.username, o_pwd, n_pwd)
+                            if succ:
+                                st.success(msg)
+                            else:
+                                st.error(msg)
 
     # --- PESTAÑA: TÉRMINOS Y SEGURIDAD ---
     elif choice == "🛡️ Términos y Seguridad":
@@ -4728,6 +4890,52 @@ else:
     # --- PANEL DEL PROPIETARIO ---
     elif choice == "👑 Panel del Propietario":
         st.markdown("<h1 class='golden-title'>👑 Consola del Propietario de la App</h1>", unsafe_allow_html=True)
+        
+        # --- NUEVA SECCIÓN DE ACCESO EXPRESO A EDICIÓN DE TIENDA ---
+        st.markdown("""
+        <div style="background: linear-gradient(135deg, #1e1b00 0%, #0d0d11 100%) !important; border: 2.5px solid #ffd700; border-radius: 12px; padding: 18px; margin-bottom: 15px; text-align: center; box-shadow: 0 4px 15px rgba(255, 215, 0, 0.25);">
+            <h3 style="color:#ffd700; margin-top:0; font-weight:900; letter-spacing:0.05em; font-size:1.2rem;">🛍️ CONSOLA DE EDICIÓN EXPRESA DE LA TIENDA</h3>
+            <p style="font-size:0.85rem; color:#a1a1aa; margin-bottom:0px;">Modifica costos de envío, valores de productos, combos de alimentos y pines digitales al instante de forma rápida.</p>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        with st.expander("🛍️ ABRIR PANEL DE EDICIÓN RÁPIDA DE LA TIENDA ALIANZA (EDITAR VALORES)", expanded=False):
+            st.subheader("🛒 Catálogo General de Precios de la Tienda")
+            st.write("Modifica el nombre, descripción, costo de tokens (SD) y tarifas de envío al instante. Los cambios se guardarán automáticamente en la base de datos.")
+            
+            try:
+                conn_items_exp = get_db_connection()
+                store_items_list_exp = pd.read_sql_query("SELECT id, name, description, price_sd, item_type, delivery_fee_sd FROM store_items", conn_items_exp)
+                conn_items_exp.close()
+                
+                for idx_i_e, item_row_e in store_items_list_exp.iterrows():
+                    i_id_e = item_row_e['id']
+                    i_name_e = item_row_e['name']
+                    i_type_e = item_row_e['item_type']
+                    i_price_e = float(item_row_e['price_sd'])
+                    i_desc_e = item_row_e['description']
+                    i_deliv_e = float(item_row_e['delivery_fee_sd']) if item_row_e['delivery_fee_sd'] is not None else 0.0
+                    
+                    type_label_e = "🏆 Membresía VIP Alianza" if i_type_e == 'MEMBERSHIP' else ("🍔 Alimentos y Bebidas" if i_type_e == 'FOOD' else "🎁 Tarjeta de Regalo / Pin / Recarga")
+                    with st.container():
+                        st.write(f"<b>Editar Artículo: {i_name_e} ({type_label_e})</b>", unsafe_allow_html=True)
+                        with st.form(f"edit_express_store_item_form_{i_id_e}"):
+                            edit_name_e = st.text_input("Nombre del Artículo", value=i_name_e)
+                            edit_desc_e = st.text_area("Descripción", value=i_desc_e, height=80)
+                            edit_price_e = st.number_input("Costo del Artículo (SD)", value=i_price_e, min_value=0.0001, format="%.4f")
+                            edit_deliv_e = st.number_input("Tarifa de Envío / Domicilio (SD)", value=i_deliv_e, min_value=0.0, format="%.4f") if i_type_e == 'FOOD' else 0.0
+                            submit_item_edit_e = st.form_submit_button(f"💾 Guardar Cambios para '{i_name_e}'")
+                            
+                            if submit_item_edit_e:
+                                if not edit_name_e.strip() or not edit_desc_e.strip():
+                                    st.error("⚠️ El nombre y la descripción no pueden estar vacíos.")
+                                else:
+                                    update_store_item_price(i_id_e, edit_price_e, edit_name_e, edit_desc_e, edit_deliv_e)
+                                    st.success(f"✅ ¡Se han guardado los cambios para '{edit_name_e}' con éxito!")
+                                    st.rerun()
+                        st.markdown("<hr style='border-color: #ffd7001a;'>", unsafe_allow_html=True)
+            except Exception as e_exp:
+                st.write("Cargando catálogo...")
         
         pending_claims_count = len(get_pending_purchases())
         pending_rewards_count = len(get_pending_referral_rewards())
