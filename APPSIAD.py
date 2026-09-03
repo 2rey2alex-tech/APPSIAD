@@ -1692,13 +1692,22 @@ st.markdown("""
         border-color: #ffd700 !important;
     }
 
-    /* Ocultar por completo el círculo de selección de radio nativo de Streamlit */
-    div[data-testid="stSidebar"] div[data-testid="stRadio"] [role="radiogroup"] label > div:first-child {
+    /* Ocultar por completo el círculo de selección de radio nativo de Streamlit (Varios métodos para asegurar que funcione en cualquier versión) */
+    [data-testid="stSidebar"] [data-testid="stRadio"] [role="radiogroup"] label > div:first-child,
+    [data-testid="stSidebar"] [data-testid="stRadio"] label:has(input[type="radio"]) input[type="radio"] + div,
+    [data-testid="stSidebar"] [data-testid="stRadio"] label:has(input[type="radio"]) div:first-child,
+    [data-testid="stSidebar"] [data-testid="stRadio"] label[data-baseweb="radio"] input[type="radio"] + div,
+    [data-testid="stSidebar"] [data-testid="stRadio"] label[data-baseweb="radio"] > div:first-child {
         display: none !important;
+        width: 0 !important;
+        height: 0 !important;
+        opacity: 0 !important;
+        visibility: hidden !important;
     }
 
     /* CONVERTIR MENÚ DE NAVEGACIÓN EN BOTONES GRANDES (CUADROS/TARJETAS FÍSICAS IDÉNTICAS AL BOTÓN DE CERRAR SESIÓN) */
-    div[data-testid="stSidebar"] div[data-testid="stRadio"] > label {
+    [data-testid="stSidebar"] [data-testid="stRadio"] legend, 
+    [data-testid="stSidebar"] [data-testid="stRadio"] > label {
         color: #ffd700 !important; /* Título en Amarillo Dorado */
         font-size: 1.15rem !important;
         font-weight: 850 !important;
@@ -1711,7 +1720,10 @@ st.markdown("""
         padding-bottom: 8px !important;
     }
 
-    div[data-testid="stSidebar"] div[data-testid="stRadio"] [role="radiogroup"] label {
+    /* Estilo del Botón de Navegación */
+    [data-testid="stSidebar"] [data-testid="stRadio"] [role="radiogroup"] label,
+    [data-testid="stSidebar"] [data-testid="stRadio"] label:has(input[type="radio"]),
+    [data-testid="stSidebar"] [data-testid="stRadio"] label[data-baseweb="radio"] {
         padding: 22px 14px !important; /* Cuadros mucho más grandes y cómodos, facilísimos de presionar */
         min-height: 80px !important; /* Altura ideal de cuadro táctil premium */
         background: #0d0d11 !important; /* Fondo tipo botón negro oscuro premium de base */
@@ -1728,12 +1740,15 @@ st.markdown("""
     }
 
     /* Separación amplia entre cuadros independientes */
-    div[data-testid="stSidebar"] div[data-testid="stRadio"] [role="radiogroup"] > div {
+    [data-testid="stSidebar"] [data-testid="stRadio"] [role="radiogroup"] > div,
+    [data-testid="stSidebar"] [data-testid="stRadio"] div[data-baseweb="radio"] {
         margin-bottom: 18px !important; /* Amplia separación para diseño ultra limpio y fácil de tocar */
     }
 
     /* Efecto Hover: Brillo dorado completo */
-    div[data-testid="stSidebar"] div[data-testid="stRadio"] [role="radiogroup"] label:hover {
+    [data-testid="stSidebar"] [data-testid="stRadio"] [role="radiogroup"] label:hover,
+    [data-testid="stSidebar"] [data-testid="stRadio"] label:has(input[type="radio"]):hover,
+    [data-testid="stSidebar"] [data-testid="stRadio"] label[data-baseweb="radio"]:hover {
         border-color: #ffd700 !important; /* El borde brilla dorado full */
         background: #161620 !important; /* Brillo sutil de fondo */
         box-shadow: 0 6px 16px rgba(255, 215, 0, 0.15) !important;
@@ -1741,14 +1756,18 @@ st.markdown("""
     }
 
     /* EFECTO CLICK ELÁSTICO (AL PRESIONAR SE HUNDE DE FORMA FÍSICA Y REALISTA) */
-    div[data-testid="stSidebar"] div[data-testid="stRadio"] [role="radiogroup"] label:active {
+    [data-testid="stSidebar"] [data-testid="stRadio"] [role="radiogroup"] label:active,
+    [data-testid="stSidebar"] [data-testid="stRadio"] label:has(input[type="radio"]):active,
+    [data-testid="stSidebar"] [data-testid="stRadio"] label[data-baseweb="radio"]:active {
         transform: scale(0.94) translateY(3px) !important; /* Se hunde de verdad al presionarlo */
         border-color: #ffffff !important; /* El borde destella en blanco al presionar */
         box-shadow: 0 2px 4px rgba(0, 0, 0, 0.7) !important;
     }
 
     /* Texto súper claro, grande e impactante dentro de cada cuadro */
-    div[data-testid="stSidebar"] div[data-testid="stRadio"] [role="radiogroup"] label [data-testid="stMarkdownContainer"] p {
+    [data-testid="stSidebar"] [data-testid="stRadio"] [role="radiogroup"] label [data-testid="stMarkdownContainer"] p,
+    [data-testid="stSidebar"] [data-testid="stRadio"] label:has(input[type="radio"]) [data-testid="stMarkdownContainer"] p,
+    [data-testid="stSidebar"] [data-testid="stRadio"] label[data-baseweb="radio"] [data-testid="stMarkdownContainer"] p {
         font-size: 1.15rem !important; /* Letra extra grande para lectura súper cómoda */
         font-weight: 850 !important; /* Estilo extra grueso de alta visibilidad */
         color: #ffffff !important; /* Texto blanco en reposo */
@@ -1760,14 +1779,18 @@ st.markdown("""
     }
 
     /* CUANDO UN CUADRO ESTÁ ACTIVO/SELECCIONADO: IDÉNTICO AL BOTÓN DE CERRAR SESIÓN (Fondo Verde Cripto + Borde Dorado) */
-    div[data-testid="stSidebar"] div[data-testid="stRadio"] [role="radiogroup"] label:has(input[type="radio"]:checked) {
+    [data-testid="stSidebar"] [data-testid="stRadio"] [role="radiogroup"] label:has(input[type="radio"]:checked),
+    [data-testid="stSidebar"] [data-testid="stRadio"] label:has(input[type="radio"]:checked),
+    [data-testid="stSidebar"] [data-testid="stRadio"] label[data-baseweb="radio"]:has(input[type="radio"]:checked) {
         background: #10b981 !important; /* Verde cripto esmeralda exacto de Cerrar Sesión */
         border: 2px solid #ffd700 !important; /* Borde dorado sólido brillante */
         box-shadow: 0 6px 20px rgba(16, 185, 129, 0.4) !important; /* Glow verde cripto */
     }
 
     /* Texto de color negro de alto contraste cuando el botón está activo/seleccionado */
-    div[data-testid="stSidebar"] div[data-testid="stRadio"] [role="radiogroup"] label:has(input[type="radio"]:checked) [data-testid="stMarkdownContainer"] p {
+    [data-testid="stSidebar"] [data-testid="stRadio"] [role="radiogroup"] label:has(input[type="radio"]:checked) [data-testid="stMarkdownContainer"] p,
+    [data-testid="stSidebar"] [data-testid="stRadio"] label:has(input[type="radio"]:checked) [data-testid="stMarkdownContainer"] p,
+    [data-testid="stSidebar"] [data-testid="stRadio"] label[data-baseweb="radio"]:has(input[type="radio"]:checked) [data-testid="stMarkdownContainer"] p {
         color: #000000 !important; /* Texto negro para contraste espectacular sobre verde cripto */
         font-weight: 900 !important;
     }
