@@ -18,7 +18,7 @@ except ImportError:
 
 # Configuración de página de Streamlit
 st.set_page_config(
-    page_title="Alianza CryptoWallet v41",
+    page_title="Alianza CryptoWallet v42",
     page_icon="💼",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -1804,49 +1804,45 @@ st.markdown("""
         font-weight: 900 !important;
     }
 
-    /* FORZAR 3 COLUMNAS DE BALANCES EN DISPOSITIVOS MÓVILES (CELULAR) */
+    /* FORZAR 3 COLUMNAS COMPACTAS DE BALANCES EN DISPOSITIVOS MÓVILES (CELULAR) */
     @media (max-width: 640px) {
-        [data-testid="stHorizontalBlock"]:has(.card) {
+        div[data-testid="stHorizontalBlock"] {
             display: flex !important;
             flex-direction: row !important;
             flex-wrap: nowrap !important;
             align-items: stretch !important;
-            gap: 6px !important;
+            gap: 5px !important;
             width: 100% !important;
         }
-        [data-testid="stHorizontalBlock"]:has(.card) > [data-testid="column"] {
+        div[data-testid="column"] {
             flex: 1 1 0% !important;
             min-width: 0 !important;
-            width: 33.33% !important;
-            max-width: 33.33% !important;
         }
-        /* Reducir altura mínima de las tarjetas para que quepan en móvil */
-        [data-testid="stHorizontalBlock"]:has(.card) div.card {
-            min-height: 120px !important;
-            padding: 6px 4px !important;
-            display: flex !important;
-            flex-direction: column !important;
-            justify-content: center !important;
+        /* Reducir tamaño de tarjetas y amontonamiento en celulares */
+        div.card {
+            min-height: 100px !important;
+            padding: 4px 2px !important;
+            margin-bottom: 2px !important;
         }
-        /* Ajustar la columna central de dos tarjetas pequeñas */
-        [data-testid="stHorizontalBlock"]:has(.card) div.card[style*="min-height: 86px"] {
-            min-height: 56px !important;
+        /* Ajustar la columna central de dos tarjetas pequeñas apiladas */
+        div.card[style*="min-height: 61px"] {
+            min-height: 48px !important;
             margin-bottom: 4px !important;
-            padding: 4px 4px !important;
+            padding: 2px 2px !important;
         }
         /* Forzar tamaños de texto compactos en móvil */
-        [data-testid="stHorizontalBlock"]:has(.card) .metric-title {
-            font-size: 0.52rem !important;
-            letter-spacing: 0.01em !important;
-            line-height: 0.7rem !important;
-        }
-        [data-testid="stHorizontalBlock"]:has(.card) .metric-value {
-            font-size: 0.8rem !important;
-            margin: 2px 0 !important;
-        }
-        [data-testid="stHorizontalBlock"]:has(.card) .metric-sub {
+        .metric-title {
             font-size: 0.48rem !important;
+            letter-spacing: 0.01em !important;
             line-height: 0.65rem !important;
+        }
+        .metric-value {
+            font-size: 0.75rem !important;
+            margin: 1px 0 !important;
+        }
+        .metric-sub {
+            font-size: 0.42rem !important;
+            line-height: 0.55rem !important;
         }
     }
 
@@ -1889,13 +1885,37 @@ else:
 
 token_price_cop = token_price_usd * usd_cop
 
+# Mostrar precio flotante del token en la parte superior derecha en color verde neón llamativo
+st.markdown(f"""
+<div style="
+    position: fixed;
+    top: 12px;
+    right: 60px;
+    z-index: 999999;
+    background: linear-gradient(135deg, #0d0d11 0%, #061f14 100%);
+    border: 1.5px solid #10b981;
+    border-radius: 30px;
+    padding: 5px 15px;
+    box-shadow: 0 0 12px rgba(16, 185, 129, 0.35);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    pointer-events: none;
+">
+    <span style="color: #ffd700; font-weight: 850; font-size: 0.85rem; letter-spacing: 0.05em; font-family: 'Segoe UI', sans-serif;">🪙 {token['symbol']}:</span>
+    <span style="color: #10b981; font-weight: 900; font-size: 1.1rem; font-family: 'Segoe UI', sans-serif; text-shadow: 0 0 8px rgba(16,185,129,0.5);">
+        ${token_price_usd:,.4f} USD
+    </span>
+</div>
+""", unsafe_allow_html=True)
+
 # El administrador ahora controla los precios de la membresía en la tienda directamente desde el panel de control.
 # Ya no se fuerza automáticamente de forma dinámica al arrancar, respetando el valor guardado en base de datos.
 
 
 if not st.session_state.logged_in:
     st.sidebar.title("🔐 Alianza CryptoWallet")
-    st.sidebar.markdown("<div style='background-color: #1e293b; padding: 6px 12px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 15px; text-align: center;'><span style='color: #ffd700; font-size: 0.85rem; font-weight: bold;'>🚀 Versión de la App: v41</span></div>", unsafe_allow_html=True)
+    st.sidebar.markdown("<div style='background-color: #1e293b; padding: 6px 12px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 15px; text-align: center;'><span style='color: #ffd700; font-size: 0.85rem; font-weight: bold;'>🚀 Versión de la App: v42</span></div>", unsafe_allow_html=True)
     menu = st.sidebar.selectbox("Seleccione una opción", ["Iniciar Sesión", "Registrarse"])
     
     if menu == "Iniciar Sesión":
@@ -1961,7 +1981,7 @@ if not st.session_state.logged_in:
 else:
     # Sidebar de usuario conectado con toques dorados
     st.sidebar.markdown(f"<h2 class='golden-title'>👋 {st.session_state.fullname}</h2>", unsafe_allow_html=True)
-    st.sidebar.markdown("<div style='background-color: #1e293b; padding: 6px 12px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 15px; text-align: center;'><span style='color: #ffd700; font-size: 0.85rem; font-weight: bold;'>🚀 Versión de la App: v41</span></div>", unsafe_allow_html=True)
+    st.sidebar.markdown("<div style='background-color: #1e293b; padding: 6px 12px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 15px; text-align: center;'><span style='color: #ffd700; font-size: 0.85rem; font-weight: bold;'>🚀 Versión de la App: v42</span></div>", unsafe_allow_html=True)
     st.sidebar.markdown(f"**Billetera ID (Código):** `{st.session_state.wallet_code}`")
     
     # Obtener el número de notificaciones pendientes
@@ -2022,30 +2042,30 @@ else:
         col1, col2, col3 = st.columns(3)
         with col1:
             st.markdown(f"""
-            <div class="card" style="min-height: 180px; display: flex; flex-direction: column; justify-content: center;">
+            <div class="card" style="min-height: 130px; display: flex; flex-direction: column; justify-content: center; padding: 0.5rem 0.8rem !important;">
                 <div class="metric-title">Balance en {token['symbol']} ({token['name']})</div>
-                <div class="metric-value" style="color: #10b981; font-size: 1.55rem !important;">{format_num(balance)} {token['symbol']}</div>
+                <div class="metric-value" style="color: #10b981; font-size: 1.4rem !important; margin: 3px 0 !important;">{format_num(balance)} {token['symbol']}</div>
                 <div class="metric-sub">Puntos de tu cuenta</div>
             </div>
             """, unsafe_allow_html=True)
         with col2:
             st.markdown(f"""
-            <div class="card" style="margin-bottom: 8px !important; min-height: 86px; display: flex; flex-direction: column; justify-content: center; padding: 0.5rem 0.8rem !important;">
+            <div class="card" style="margin-bottom: 8px !important; min-height: 61px; display: flex; flex-direction: column; justify-content: center; padding: 0.35rem 0.8rem !important;">
                 <div class="metric-title" style="font-size: 0.68rem !important;">Equivalente en Dólares (USD)</div>
-                <div class="metric-value" style="color: #ffffff; font-size: 1.15rem !important; margin: 2px 0 !important;">${balance_usd:,.2f} USD</div>
-                <div class="metric-sub" style="font-size: 0.65rem !important;">1 {token['symbol']} = ${token_price_usd:,.4f} USD</div>
+                <div class="metric-value" style="color: #ffffff; font-size: 1.1rem !important; margin: 1px 0 !important;">${balance_usd:,.2f} USD</div>
+                <div class="metric-sub" style="font-size: 0.62rem !important;">1 {token['symbol']} = ${token_price_usd:,.4f} USD</div>
             </div>
-            <div class="card" style="margin-bottom: 0px !important; min-height: 86px; display: flex; flex-direction: column; justify-content: center; padding: 0.5rem 0.8rem !important;">
+            <div class="card" style="margin-bottom: 0px !important; min-height: 61px; display: flex; flex-direction: column; justify-content: center; padding: 0.35rem 0.8rem !important;">
                 <div class="metric-title" style="font-size: 0.68rem !important;">Valor Teórico en Pesos</div>
-                <div class="metric-value" style="color: #ffffff; font-size: 1.15rem !important; margin: 2px 0 !important;">${balance_cop_equiv:,.0f} COP</div>
-                <div class="metric-sub" style="font-size: 0.65rem !important;">Tasa: $1 USD = ${usd_cop:,.2f} COP</div>
+                <div class="metric-value" style="color: #ffffff; font-size: 1.1rem !important; margin: 1px 0 !important;">${balance_cop_equiv:,.0f} COP</div>
+                <div class="metric-sub" style="font-size: 0.62rem !important;">Tasa: $1 USD = ${usd_cop:,.2f} COP</div>
             </div>
             """, unsafe_allow_html=True)
         with col3:
             st.markdown(f"""
-            <div class="card" style="border-color: #ffd700; min-height: 180px; display: flex; flex-direction: column; justify-content: center;">
+            <div class="card" style="border-color: #ffd700; min-height: 130px; display: flex; flex-direction: column; justify-content: center; padding: 0.5rem 0.8rem !important;">
                 <div class="metric-title">Saldo Retirable (COP)</div>
-                <div class="metric-value" style="color: #ffd700; font-size: 1.55rem !important;">${balance_cop_user:,.0f} COP</div>
+                <div class="metric-value" style="color: #ffd700; font-size: 1.4rem !important; margin: 3px 0 !important;">${balance_cop_user:,.0f} COP</div>
                 <div class="metric-sub">Saldo líquido cambiado para retiro</div>
             </div>
             """, unsafe_allow_html=True)
@@ -2074,9 +2094,9 @@ else:
         col_c1, col_c2, col_c3 = st.columns(3)
         with col_c1:
             st.markdown(f"""
-            <div class="card" style="border-top: 3px solid #ffd700;">
+            <div class="card" style="border-top: 3px solid #ffd700; min-height: 96px; display: flex; flex-direction: column; justify-content: center; padding: 0.5rem 0.8rem !important; margin-bottom: 4px !important;">
                 <div class="metric-title">🪙 {token['name']} ({token['symbol']})</div>
-                <div class="metric-value">${token_price_usd:,.4f} USD</div>
+                <div class="metric-value" style="font-size: 1.25rem !important; margin: 2px 0 !important;">${token_price_usd:,.4f} USD</div>
                 <div class="metric-sub">Valor en COP: ${token_price_cop:,.2f} COP</div>
             </div>
             """, unsafe_allow_html=True)
@@ -2086,9 +2106,9 @@ else:
             
         with col_c2:
             st.markdown(f"""
-            <div class="card" style="border-top: 3px solid #10b981;">
+            <div class="card" style="border-top: 3px solid #10b981; min-height: 96px; display: flex; flex-direction: column; justify-content: center; padding: 0.5rem 0.8rem !important; margin-bottom: 4px !important;">
                 <div class="metric-title">₿ Bitcoin (BTC)</div>
-                <div class="metric-value">${btc_price:,.2f} USD</div>
+                <div class="metric-value" style="font-size: 1.25rem !important; margin: 2px 0 !important;">${btc_price:,.2f} USD</div>
                 <div class="metric-sub">Valor en COP: ${(btc_price*usd_cop):,.0f} COP</div>
             </div>
             """, unsafe_allow_html=True)
@@ -2096,9 +2116,9 @@ else:
             
         with col_c3:
             st.markdown(f"""
-            <div class="card" style="border-top: 3px solid #ffd700;">
+            <div class="card" style="border-top: 3px solid #ffd700; min-height: 96px; display: flex; flex-direction: column; justify-content: center; padding: 0.5rem 0.8rem !important; margin-bottom: 4px !important;">
                 <div class="metric-title">💵 Tasa de Cambio (USD/COP)</div>
-                <div class="metric-value">${usd_cop:,.2f} COP</div>
+                <div class="metric-value" style="font-size: 1.25rem !important; margin: 2px 0 !important;">${usd_cop:,.2f} COP</div>
                 <div class="metric-sub">Valor de un Dólar en Pesos</div>
             </div>
             """, unsafe_allow_html=True)
@@ -2960,10 +2980,9 @@ else:
         st.subheader("🌲 Árbol Genealógico de Mi Red")
         st.write("Explora de forma visual la estructura de tu red (Soporta múltiples niveles de invitados en profundidad):")
         
-        # Función recursiva para obtener árbol
+        # Función recursiva para obtener árbol (Soporta múltiples niveles de invitados)
         def get_referral_tree(parent_code, level=1):
             conn_tree = get_db_connection()
-            cursor_tree = conn_tree.conn_tree = get_db_connection()
             cursor_tree = conn_tree.cursor()
             cursor_tree.execute("""
                 SELECT wallet_code, fullname, username 
@@ -2996,38 +3015,41 @@ else:
             conn_tree.close()
             return tree_nodes
             
-        # Función recursiva para renderizar HTML
-        def render_referral_tree_html(nodes):
+        # Función recursiva para renderizar HTML con un diseño estructurado de crucigrama / árbol de conexiones
+        def render_referral_tree_html(nodes, indent=0):
             if not nodes:
                 return ""
             
-            html = '<div style="margin-left: 20px; border-left: 2px dashed #ffd70044; padding-left: 15px; margin-top: 5px;">'
-            for node in nodes:
+            html = ""
+            for idx, node in enumerate(nodes):
+                is_last = (idx == len(nodes) - 1)
+                connector = "└── " if is_last else "├── "
+                
+                # Diseño de fila compacta crucigrama
                 html += f"""
-                <div class="card" style="border-left: 4px solid #10b981; margin-bottom: 8px; padding: 12px 15px; display: flex; justify-content: space-between; align-items: center; background-color: #0d0d11; border-color: #ffd70044;">
-                    <div>
-                        <span style="font-weight: bold; color: #ffffff; font-size: 1.0rem;">👤 {node['fullname']}</span>
-                        <span style="color: #a1a1aa; font-size: 0.85rem; margin-left: 8px;">@{node['username']}</span>
-                        <span style="color: #888899; font-size: 0.75rem; display: block; margin-top: 2px;">ID Billetera: <code>{node['wallet_code']}</code> | Nivel {node['level']}</span>
+                <div style="font-family: 'Segoe UI', Arial, sans-serif; color: #ffffff; font-size: 0.95rem; margin: 4px 0; padding-left: {25 * indent}px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px dotted #ffd7001a; padding-bottom: 6px;">
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <span style="color: #ffd700; font-weight: bold; font-family: monospace;">{connector}</span>
+                        <span style="color: #10b981; font-weight: bold; font-size: 1.0rem;">👤 {node['fullname']}</span>
+                        <span style="color: #a1a1aa; font-size: 0.8rem;">(@{node['username']})</span>
+                        <span style="background-color: #0f172a; color: #10b981; font-size: 0.75rem; padding: 2px 6px; border-radius: 4px; border: 1px solid #10b98133; font-family: monospace;">ID: {node['wallet_code']}</span>
                     </div>
                     <div style="text-align: right;">
-                        <span style="color: #ffd700; font-weight: 800; font-size: 1.15rem;">+{format_num(node['earned'])} SD</span>
-                        <span style="color: #888899; font-size: 0.75rem; display: block;">Ganancia aportada</span>
+                        <span style="color: #ffd700; font-weight: 850; font-size: 1.05rem;">+{format_num(node['earned'])} SD</span>
                     </div>
                 </div>
                 """
                 if node['children']:
-                    html += render_referral_tree_html(node['children'])
-            html += '</div>'
+                    html += render_referral_tree_html(node['children'], indent + 1)
             return html
             
         # Cargar y mostrar árbol genealógico
         my_tree = get_referral_tree(st.session_state.wallet_code)
         if len(my_tree) == 0:
-            st.info("Aún no tienes referidos registrados. ¡Comparte tu código inmutable con tus amigos para empezar a ganar de por vida!")
+            st.write("") # Si no tiene referidos, aparece completamente en blanco (sin mensajes molestos)
         else:
             tree_html = f"""
-            <div style="border: 1px solid #ffd70044; padding: 15px; border-radius: 10px; background-color: #050507; margin-bottom: 25px;">
+            <div style="border: 2px solid #ffd70033; padding: 18px; border-radius: 12px; background-color: #07070a; margin-bottom: 25px; box-shadow: 0 4px 15px rgba(255, 215, 0, 0.02);">
                 <div class="card" style="border-left: 4px solid #ffd700; background-color: #111116; margin-bottom: 15px; padding: 12px 15px; display: flex; justify-content: space-between; align-items: center;">
                     <div>
                         <span style="font-weight: bold; color: #ffd700; font-size: 1.1rem;">👑 Tú ({st.session_state.fullname})</span>
