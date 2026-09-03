@@ -18,7 +18,7 @@ except ImportError:
 
 # Configuración de página de Streamlit
 st.set_page_config(
-    page_title="Alianza CryptoWallet v45",
+    page_title="Alianza CryptoWallet v46",
     page_icon="💼",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -1026,26 +1026,56 @@ def register_user(username, password, fullname, email, referred_by=None):
 def login_user(username, password):
     conn = get_db_connection()
     cursor = conn.cursor()
-    hashed_pw = hash_password(password)
+    
+    # Try salted hash first (New Secure standard)
+    hashed_pw_salted = hash_password(password)
     cursor.execute("""
         SELECT id, username, fullname, email, wallet_code, balance, is_admin 
         FROM users WHERE username = ? AND password = ?
-    """, (username, hashed_pw))
+    """, (username, hashed_pw_salted))
     user = cursor.fetchone()
+    
+    if user:
+        conn.close()
+        return user
+        
+    # If not found, try legacy unsalted hash (Automatic secure migration fallback)
+    hashed_pw_legacy = hash_password_legacy(password)
+    cursor.execute("""
+        SELECT id, username, fullname, email, wallet_code, balance, is_admin 
+        FROM users WHERE username = ? AND password = ?
+    """, (username, hashed_pw_legacy))
+    user = cursor.fetchone()
+    
+    if user:
+        # Automatically upgrade their password hash to the salted standard upon login!
+        cursor.execute("UPDATE users SET password = ? WHERE id = ?", (hashed_pw_salted, user[0]))
+        conn.commit()
+        conn.close()
+        return user
+        
     conn.close()
-    return user
+    return None
 
 def change_user_password(username, old_password, new_password):
     conn = get_db_connection()
     cursor = conn.cursor()
-    hashed_old = hash_password(old_password)
-    cursor.execute("SELECT 1 FROM users WHERE username = ? AND password = ?", (username, hashed_old))
-    if not cursor.fetchone():
-        conn.close()
-        return False, "La contraseña actual es incorrecta."
     
-    hashed_new = hash_password(new_password)
-    cursor.execute("UPDATE users SET password = ? WHERE username = ?", (hashed_new, username))
+    # Check old password (supporting both salted and legacy fallbacks)
+    hashed_old_salted = hash_password(old_password)
+    cursor.execute("SELECT 1 FROM users WHERE username = ? AND password = ?", (username, hashed_old_salted))
+    res = cursor.fetchone()
+    
+    if not res:
+        hashed_old_legacy = hash_password_legacy(old_password)
+        cursor.execute("SELECT 1 FROM users WHERE username = ? AND password = ?", (username, hashed_old_legacy))
+        res = cursor.fetchone()
+        if not res:
+            conn.close()
+            return False, "La contraseña actual es incorrecta."
+    
+    hashed_new_salted = hash_password(new_password)
+    cursor.execute("UPDATE users SET password = ? WHERE username = ?", (hashed_new_salted, username))
     conn.commit()
     conn.close()
     return True, "Contraseña cambiada exitosamente."
@@ -1128,6 +1158,27 @@ def format_num(val):
         return formatted
     except Exception:
         return str(val)
+
+def format_usd_price(price):
+    # Dynamic floating token price formatter (prevents rounding to $0.0000 on low values)
+    if price is None:
+        return "$0.00"
+    try:
+        price_f = float(price)
+        if price_f <= 0.0:
+            return "$0.00"
+        if price_f < 0.0001:
+            return f"${price_f:,.8f} USD"
+        elif price_f < 0.01:
+            return f"${price_f:,.6f} USD"
+        elif price_f < 0.1:
+            return f"${price_f:,.5f} USD"
+        elif price_f < 1.0:
+            return f"${price_f:,.4f} USD"
+        else:
+            return f"${price_f:,.2f} USD"
+    except Exception:
+        return f"${price} USD" 
 
 def update_user_balance_and_cop(user_code, balance_sd, balance_cop):
     conn = get_db_connection()
@@ -2032,6 +2083,9 @@ else:
 
 token_price_cop = token_price_usd * usd_cop
 
+# Formatear el precio del token de forma dinámica (con precisión inteligente para monedas de bajo coste)
+token_price_usd_formatted = format_usd_price(token_price_usd)
+
 # Mostrar precio flotante del token en la parte superior derecha en color verde neón llamativo
 st.markdown(f"""
 <div style="
@@ -2051,7 +2105,7 @@ st.markdown(f"""
 ">
     <span style="color: #ffd700; font-weight: 850; font-size: 0.85rem; letter-spacing: 0.05em; font-family: 'Segoe UI', sans-serif;">🪙 {token['symbol']}:</span>
     <span style="color: #10b981; font-weight: 900; font-size: 1.1rem; font-family: 'Segoe UI', sans-serif; text-shadow: 0 0 8px rgba(16,185,129,0.5);">
-        ${token_price_usd:,.4f} USD
+        {token_price_usd_formatted}
     </span>
 </div>
 """, unsafe_allow_html=True)
@@ -2062,7 +2116,7 @@ st.markdown(f"""
 
 if not st.session_state.logged_in:
     st.sidebar.title("🔐 Alianza CryptoWallet")
-    st.sidebar.markdown("<div style='background-color: #1e293b; padding: 6px 12px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 15px; text-align: center;'><span style='color: #ffd700; font-size: 0.85rem; font-weight: bold;'>🚀 Versión de la App: v45</span></div>", unsafe_allow_html=True)
+    st.sidebar.markdown("<div style='background-color: #1e293b; padding: 6px 12px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 15px; text-align: center;'><span style='color: #ffd700; font-size: 0.85rem; font-weight: bold;'>🚀 Versión de la App: v46</span></div>", unsafe_allow_html=True)
     menu = st.sidebar.selectbox("Seleccione una opción", ["Iniciar Sesión", "Registrarse"])
     
     if menu == "Iniciar Sesión":
@@ -2106,8 +2160,10 @@ if not st.session_state.logged_in:
                     st.warning("Todos los campos son obligatorios.")
                 elif password != confirm_password:
                     st.error("Las contraseñas no coinciden.")
-                elif len(password) < 6:
-                    st.error("La contraseña debe tener al menos 6 caracteres.")
+                elif len(password) < 8:
+                    st.error("⚠️ Por seguridad criptográfica, la contraseña debe tener al menos 8 caracteres.")
+                elif any(weak in password.lower() for weak in ['123456', '12345678', 'admin123', 'password', 'contraseña', 'qwerty', 'alianza123']):
+                    st.error("⚠️ ¡Contraseña demasiado débil o expuesta! Tu navegador o sistema la detectará como 'hackeada' o comprometida. Elige una clave más robusta combinando letras, números y símbolos.")
                 else:
                     ref_code = referred_by.strip() if referred_by else None
                     success, result = register_user(username, password, fullname, email, ref_code)
@@ -2128,7 +2184,7 @@ if not st.session_state.logged_in:
 else:
     # Sidebar de usuario conectado con toques dorados
     st.sidebar.markdown(f"<h2 class='golden-title'>👋 {st.session_state.fullname}</h2>", unsafe_allow_html=True)
-    st.sidebar.markdown("<div style='background-color: #1e293b; padding: 6px 12px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 15px; text-align: center;'><span style='color: #ffd700; font-size: 0.85rem; font-weight: bold;'>🚀 Versión de la App: v45</span></div>", unsafe_allow_html=True)
+    st.sidebar.markdown("<div style='background-color: #1e293b; padding: 6px 12px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 15px; text-align: center;'><span style='color: #ffd700; font-size: 0.85rem; font-weight: bold;'>🚀 Versión de la App: v46</span></div>", unsafe_allow_html=True)
     st.sidebar.markdown(f"**Billetera ID (Código):** `{st.session_state.wallet_code}`")
     
     # Obtener el número de notificaciones pendientes
@@ -2187,6 +2243,45 @@ else:
                 st.image(f"data:image/jpeg;base64,{VIP_BADGE_B64}", width=110)
         else:
             st.markdown(f"<h1 class='golden-title'>💼 Billetera de {st.session_state.fullname}</h1>", unsafe_allow_html=True)
+            
+        # Fila de Logos Responsivos en la parte superior (SIAD, BINANCE, METAMASK y Dólar/COP)
+        st.markdown("""
+        <div style="display: flex; align-items: center; justify-content: center; gap: 20px; margin: 15px 0 25px 0; flex-wrap: wrap;">
+            <!-- Binance Logo -->
+            <div style="text-align: center; opacity: 0.85; transition: opacity 0.2s;">
+                <img src="https://cryptologos.cc/logos/binance-coin-bnb-logo.png" width="38" style="vertical-align: middle; filter: drop-shadow(0 0 6px rgba(240,185,11,0.35));">
+                <div style="font-size: 0.7rem; color: #a1a1aa; margin-top: 5px; font-weight: bold; letter-spacing: 0.05em;">BINANCE</div>
+            </div>
+            
+            <div style="color: #ffd70033; font-size: 1rem; align-self: center; margin-top: -12px; font-weight: 300;">⚡</div>
+            
+            <!-- SIAD SD (Highlights most - Golden glowing border and enlarged scale) -->
+            <div style="text-align: center; border: 2.2px solid #ffd700; border-radius: 50%; padding: 8px; background: radial-gradient(circle, rgba(255,215,0,0.12) 0%, rgba(13,13,17,0) 80%); box-shadow: 0 0 20px rgba(255, 215, 0, 0.35); transform: scale(1.1); transition: all 0.3s ease;">
+                <img src="https://top100token.com/images/token_logos/0xC324649213ec1757190bc4b78bcD41Cc1545C264.png" 
+                     onerror="this.onerror=null; this.src='https://assets.coingecko.com/coins/images/279/large/ethereum.png';" 
+                     width="52" style="vertical-align: middle; border-radius: 50%;">
+                <div style="font-size: 0.78rem; color: #ffd700; margin-top: 5px; font-weight: 900; letter-spacing: 0.07em;">SIAD SD</div>
+            </div>
+            
+            <div style="color: #ffd70033; font-size: 1rem; align-self: center; margin-top: -12px; font-weight: 300;">⚡</div>
+            
+            <!-- MetaMask Logo -->
+            <div style="text-align: center; opacity: 0.85; transition: opacity 0.2s;">
+                <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/3/36/MetaMask_Fox.svg/512px-MetaMask_Fox.svg.png" width="38" style="vertical-align: middle; filter: drop-shadow(0 0 6px rgba(226,117,31,0.35));">
+                <div style="font-size: 0.7rem; color: #a1a1aa; margin-top: 5px; font-weight: bold; letter-spacing: 0.05em;">METAMASK</div>
+            </div>
+            
+            <div style="color: #ffd70033; font-size: 1rem; align-self: center; margin-top: -12px; font-weight: 300;">⚡</div>
+            
+            <!-- Dollar/COP Logo -->
+            <div style="text-align: center; opacity: 0.85; transition: opacity 0.2s;">
+                <div style="width: 38px; height: 38px; background-color: #10b981; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 1.3rem; font-weight: 900; color: #000000; box-shadow: 0 0 10px rgba(16,185,129,0.45); margin: 0 auto;">
+                    $
+                </div>
+                <div style="font-size: 0.7rem; color: #a1a1aa; margin-top: 5px; font-weight: bold; letter-spacing: 0.05em;">USD / COP</div>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
         
         # Alerta visual rápida si tiene notificaciones pendientes
         if unread_notifs > 0:
@@ -2214,7 +2309,7 @@ else:
             <div class="card" style="margin-bottom: 8px !important; min-height: 61px; display: flex; flex-direction: column; justify-content: center; padding: 0.35rem 0.8rem !important;">
                 <div class="metric-title" style="font-size: 0.68rem !important;">Equivalente en Dólares (USD)</div>
                 <div class="metric-value" style="color: #ffffff; font-size: 1.1rem !important; margin: 1px 0 !important;">${balance_usd:,.2f} USD</div>
-                <div class="metric-sub" style="font-size: 0.62rem !important;">1 {token['symbol']} = ${token_price_usd:,.4f} USD</div>
+                <div class="metric-sub" style="font-size: 0.62rem !important;">1 {token['symbol']} = {token_price_usd_formatted}</div>
             </div>
             <div class="card" style="margin-bottom: 0px !important; min-height: 61px; display: flex; flex-direction: column; justify-content: center; padding: 0.35rem 0.8rem !important;">
                 <div class="metric-title" style="font-size: 0.68rem !important;">Valor Teórico en Pesos</div>
@@ -2257,7 +2352,7 @@ else:
             st.markdown(f"""
             <div class="card" style="border-top: 3px solid #ffd700; min-height: 96px; display: flex; flex-direction: column; justify-content: center; padding: 0.5rem 0.8rem !important; margin-bottom: 4px !important;">
                 <div class="metric-title">🪙 {token['name']} ({token['symbol']})</div>
-                <div class="metric-value" style="font-size: 1.25rem !important; margin: 2px 0 !important;">${token_price_usd:,.4f} USD</div>
+                <div class="metric-value" style="font-size: 1.25rem !important; margin: 2px 0 !important;">{token_price_usd_formatted}</div>
                 <div class="metric-sub">Valor en COP: ${token_price_cop:,.2f} COP</div>
             </div>
             """, unsafe_allow_html=True)
@@ -3476,44 +3571,73 @@ else:
         ])
         
         with tab_mint:
-            st.subheader("💸 Cargar Monedas Directamente")
-            st.write("Acredita saldo directamente ingresando el código de billetera.")
+            st.subheader("👥 Control de Usuarios Registrados y Emisión")
             
             conn = get_db_connection()
-            users_df = pd.read_sql_query("""
-                SELECT fullname as 'Nombre', username as 'Usuario', wallet_code as 'Código de Billetera', balance as 'Balance actual (SD)'
+            cursor = conn.cursor()
+            cursor.execute("SELECT COUNT(*) FROM users WHERE is_admin = 0")
+            total_users_registered = cursor.fetchone()[0] or 0
+            
+            # Tabla de directorio completa de todos los usuarios
+            users_all_df = pd.read_sql_query("""
+                SELECT fullname as 'Nombre Completo', 
+                       username as 'Nombre de Usuario', 
+                       wallet_code as 'Código de Billetera (ID)', 
+                       balance as 'Balance (SD)', 
+                       balance_cop as 'Saldo Retirable (COP)',
+                       CASE WHEN is_vip = 1 THEN '👑 VIP' ELSE '👤 Regular' END as 'Rango'
                 FROM users 
                 WHERE is_admin = 0
+                ORDER BY fullname ASC
             """, conn)
             conn.close()
             
-            if len(users_df) == 0:
+            # Tarjeta de métrica destacada superior
+            st.markdown(f"""
+            <div class="card" style="border-left: 5px solid #ffd700; padding: 15px; margin-bottom: 20px; display: flex; align-items: center; justify-content: space-between;">
+                <div>
+                    <h3 style="margin: 0; color: #ffd700; font-size: 1.15rem; font-weight: bold; text-transform: uppercase; letter-spacing: 0.05em;">👥 Total de Usuarios Registrados</h3>
+                    <p style="margin: 5px 0 0 0; font-size: 0.85rem; color: #a1a1aa;">Usuarios activos registrados en la base de datos de Alianza.</p>
+                </div>
+                <div>
+                    <span style="font-size: 2.2rem; font-weight: 900; color: #ffffff; text-shadow: 0 0 10px rgba(255, 215, 0, 0.35);">{total_users_registered}</span>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            # Mostrar tabla detallada de usuarios
+            st.write("<b>📋 Directorio de Cuentas y Códigos de Billetera:</b>", unsafe_allow_html=True)
+            if len(users_all_df) == 0:
                 st.info("No hay usuarios registrados todavía.")
             else:
-                st.dataframe(users_df, use_container_width=True)
+                st.dataframe(users_all_df, use_container_width=True)
                 
-                with st.form("mint_form"):
-                    t_code = st.text_input("Ingresa el código de 5 dígitos del destinatario", max_chars=5, placeholder="Ej. 12345")
-                    m_amount = st.number_input(f"Monto de {token['symbol']} a emitir y transferir", min_value=0.0001, step=100.0, format="%.4f")
-                    submit_m = st.form_submit_button("Acreditar Billetera")
-                    
-                    if submit_m:
-                        if len(t_code) != 5 or not t_code.isdigit():
-                            st.error("El código debe ser de exactamente 5 dígitos numéricos.")
+            st.markdown("---")
+            st.subheader("💸 Cargar Monedas Directamente")
+            st.write("Acredita saldo directamente ingresando el código de billetera.")
+            
+            with st.form("mint_form"):
+                t_code = st.text_input("Ingresa el código de 5 dígitos del destinatario", max_chars=5, placeholder="Ej. 12345")
+                m_amount = st.number_input(f"Monto de {token['symbol']} a emitir y transferir", min_value=0.0001, step=100.0, format="%.4f")
+                submit_m = st.form_submit_button("Acreditar Billetera")
+                
+                if submit_m:
+                    if len(t_code) != 5 or not t_code.isdigit():
+                        st.error("El código debe ser de exactamente 5 dígitos numéricos.")
+                    else:
+                        succ, msg = send_points("99999", t_code, m_amount)
+                        if succ:
+                            # Enviar notificación directa por asignación manual
+                            add_notification(
+                                t_code,
+                                f"👑 <b>¡Acreditación Oficial!</b> El propietario de la app ha cargado directamente "
+                                f"<b>{format_num(m_amount)} SD</b> en tu cuenta."
+                            )
+                            st.success(f"¡Asignación Exitosa! Se enviaron {format_num(m_amount)} {token['symbol']} al código {t_code}.")
+                            st.balloons()
+                            st.rerun()
                         else:
-                            succ, msg = send_points("99999", t_code, m_amount)
-                            if succ:
-                                # Enviar notificación directa por asignación manual
-                                add_notification(
-                                    t_code,
-                                    f"👑 <b>¡Acreditación Oficial!</b> El propietario de la app ha cargado directamente "
-                                    f"<b>{format_num(m_amount)} SD</b> en tu cuenta."
-                                )
-                                st.success(f"¡Asignación Exitosa! Se enviaron {format_num(m_amount)} {token['symbol']} al código {t_code}.")
-                                st.balloons()
-                                st.rerun()
-                            else:
-                                st.error(msg)
+                            st.error(msg)
             
             st.markdown("---")
             st.subheader("👑 Gestión y Activación Manual de Membresía VIP")
