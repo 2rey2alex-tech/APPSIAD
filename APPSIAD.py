@@ -16,10 +16,21 @@ try:
 except ImportError:
     st_autorefresh = None
 
+def clean_html(html_str):
+    import re
+    # Remove escaped quotes
+    cleaned = html_str.replace('\\"', '"').replace('\"', '"')
+    # Replace newlines with space
+    cleaned = cleaned.replace('\n', ' ').replace('\r', ' ')
+    # Replace multiple spaces with a single space
+    cleaned = re.sub(r'\s+', ' ', cleaned)
+    return cleaned.strip()
+
+
 
 # Configuración de página de Streamlit
 st.set_page_config(
-    page_title="Alianza CryptoWallet v58",
+    page_title="Alianza CryptoWallet v59",
     page_icon="💼",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -2758,7 +2769,7 @@ st.markdown(f"""
 
 if not st.session_state.logged_in:
     st.sidebar.title("🔐 Alianza CryptoWallet")
-    st.sidebar.markdown("<div style='background-color: #1e293b; padding: 6px 12px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 15px; text-align: center;'><span style='color: #ffd700; font-size: 0.85rem; font-weight: bold;'>🚀 Versión de la App: v58</span></div>", unsafe_allow_html=True)
+    st.sidebar.markdown("<div style='background-color: #1e293b; padding: 6px 12px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 15px; text-align: center;'><span style='color: #ffd700; font-size: 0.85rem; font-weight: bold;'>🚀 Versión de la App: v59</span></div>", unsafe_allow_html=True)
     menu = st.sidebar.selectbox("Seleccione una opción", ["Iniciar Sesión", "Registrarse"])
     
     if menu == "Iniciar Sesión":
@@ -2826,7 +2837,7 @@ if not st.session_state.logged_in:
 else:
     # Sidebar de usuario conectado con toques dorados
     st.sidebar.markdown(f"<h2 class='golden-title'>👋 {st.session_state.fullname}</h2>", unsafe_allow_html=True)
-    st.sidebar.markdown("<div style='background-color: #1e293b; padding: 6px 12px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 15px; text-align: center;'><span style='color: #ffd700; font-size: 0.85rem; font-weight: bold;'>🚀 Versión de la App: v58</span></div>", unsafe_allow_html=True)
+    st.sidebar.markdown("<div style='background-color: #1e293b; padding: 6px 12px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 15px; text-align: center;'><span style='color: #ffd700; font-size: 0.85rem; font-weight: bold;'>🚀 Versión de la App: v59</span></div>", unsafe_allow_html=True)
     st.sidebar.markdown(f"**Billetera ID (Código):** `{st.session_state.wallet_code}`")
     
     # Obtener el número de notificaciones pendientes
@@ -3899,7 +3910,7 @@ else:
             
                 col_spin_l, col_spin_r = st.columns([1, 1])
                 with col_spin_l:
-                    st.markdown(textwrap.dedent(f"""
+                    st.markdown(clean_html(f"""
                     <div class="card" style="border-left: 4px solid #ffd700;">
                         <h5 style="color:#ffd700; margin-top:0;">⚡ Multiplica tus Monedas</h5>
                         <p style="font-size:0.9rem; color:#ffffff;">Girar la ruleta tiene un costo de <b>{format_num(spin_cost)} SD</b>. Los premios configurados por el administrador hoy son:</p>
@@ -4060,7 +4071,7 @@ else:
                 if not trivia:
                     st.info("No hay trivias activas publicadas por el administrador en este momento. Vuelve más tarde.")
                 else:
-                    st.markdown(textwrap.dedent(f"""
+                    st.markdown(clean_html(f"""
                     <div class="card" style="border-left: 4px solid #3b82f6;">
                         <h4 style="color:#3b82f6; margin-top:0;">📝 Trivia ID #{trivia['id']}</h4>
                         <p style="font-size:1.1rem; color:#ffffff; font-weight:bold; margin-bottom:15px;">{trivia['question']}</p>
@@ -4104,7 +4115,7 @@ else:
                 if not bet:
                     st.info("No hay partidos activos para pronósticos en este momento. ¡Pronto el administrador publicará un gran partido!")
                 else:
-                    st.markdown(textwrap.dedent(f"""
+                    st.markdown(clean_html(f"""
                     <div class="card" style="border-left: 4px solid #ef4444; background: linear-gradient(135deg, #0d0d11 0%, #200404 100%) !important; padding: 20px;">
                         <h4 style="color:#ef4444; margin-top:0; text-align:center; font-weight:800; text-transform:uppercase; letter-spacing:0.05em;">⚽ PRONÓSTICOS DEPORTIVOS (LA POLLA ALIANZA)</h4>
                         
@@ -4179,7 +4190,7 @@ else:
                     else:
                         highest_bidder_disp = f"Usuario {highest_bidder_disp}"
                 
-                    st.markdown(textwrap.dedent(f"""
+                    st.markdown(clean_html(f"""
                     <div class="card" style="border-left: 4px solid #ffd700;">
                         <h4 style="color:#ffd700; margin-top:0;">🔨 Subasta Activa: {auc['item_name']}</h4>
                         <p style="font-size:0.88rem; color:#e2e8f0; margin-top:2px;">{auc['description']}</p>
@@ -4272,7 +4283,7 @@ else:
                     if st.session_state.scratch_game_res:
                         res_data = st.session_state.scratch_game_res
                         border_clr = "#10b981" if res_data["won_amt"] > 0 else "#ef4444"
-                        st.markdown(textwrap.dedent(f"""
+                        st.markdown(clean_html(f"""
                         <div class="card" style="border: 2px solid {border_clr}; text-align:center; background: linear-gradient(135deg, #0d0d11 0%, #15151e 100%) !important;">
                             <div style="font-size: 1.5rem; color:#ffd700; font-weight:800;">ALIANZA SCRATCH</div>
                             <p style="font-size:0.82rem; color:#a1a1aa; margin:5px 0;">¡Tarjeta raspada!</p>
@@ -4280,7 +4291,7 @@ else:
                         </div>
                         """), unsafe_allow_html=True)
                     else:
-                        st.markdown(textwrap.dedent(f"""
+                        st.markdown(clean_html(f"""
                         <div class="card" style="border-top: 3px solid #10b981; text-align:center;">
                             <div style="font-size: 1.5rem; color:#10b981; font-weight:800;">ALIANZA SCRATCH</div>
                             <p style="font-size:0.82rem; color:#a1a1aa; margin:5px 0;">¿Tendrás las tres coronas ganadoras de la suerte?</p>
@@ -4371,7 +4382,7 @@ else:
                 conn_u.close()
             
                 if is_unlocked:
-                    st.markdown(textwrap.dedent(f"""
+                    st.markdown(clean_html(f"""
                     <div class="card" style="border: 2px solid #ffd700; background: linear-gradient(135deg, #0d0d11 0%, #201a00 100%) !important; padding: 22px; text-align:center;">
                         <h3 style="color:#ffd700; margin-top:0; font-family:serif;">🔮 CONSEJO MILLONARIO DESBLOQUEADO</h3>
                         <p style="font-size:1.15rem; color:#ffffff; font-style:italic; line-height:1.6rem; font-family:serif; max-width:80%; margin: 15px auto;">
@@ -4381,7 +4392,7 @@ else:
                     </div>
                     """), unsafe_allow_html=True)
                 else:
-                    st.markdown(textwrap.dedent(f"""
+                    st.markdown(clean_html(f"""
                     <div class="card" style="border: 1px dashed rgba(255,215,0,0.3); padding: 30px; text-align:center; background-color:#050507; filter: blur(0.3px);">
                         <div style="font-size: 3.0rem; margin-bottom:12px; filter: grayscale(1);">🔒🔮🔒</div>
                         <h4 style="color:#a1a1aa; margin-top:0;">Consejo Millonario Oculto</h4>
