@@ -18,7 +18,7 @@ except ImportError:
 
 # Configuración de página de Streamlit
 st.set_page_config(
-    page_title="Alianza CryptoWallet v38",
+    page_title="Alianza CryptoWallet v39",
     page_icon="💼",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -1628,14 +1628,14 @@ st.markdown("""
         box-shadow: 0 4px 20px rgba(16, 185, 129, 0.4) !important; /* Glow verde cripto */
     }
     
-    /* Tarjetas Negras/Grises con Bordes Dorados */
+    /* Tarjetas Negras/Grises con Bordes Dorados (Más compactas y visibles) */
     .card {
         background-color: #0d0d11 !important;
-        padding: 1.0rem !important;
-        border-radius: 10px !important;
+        padding: 0.65rem 0.8rem !important; /* Reducido de 1.0rem para máxima visibilidad */
+        border-radius: 8px !important; /* Bordes ligeramente más finos */
         border: 1px solid #ffd700 !important; /* Delicado borde dorado */
-        margin-bottom: 0.8rem !important;
-        box-shadow: 0 4px 15px rgba(255, 215, 0, 0.03) !important;
+        margin-bottom: 0.5rem !important; /* Margen reducido */
+        box-shadow: 0 3px 10px rgba(255, 215, 0, 0.02) !important;
     }
     
     /* Notificaciones estilizadas */
@@ -1658,20 +1658,20 @@ st.markdown("""
     
     .metric-title {
         color: #ffd700 !important; /* Amarillo dorado */
-        font-size: 0.85rem;
-        font-weight: 600;
+        font-size: 0.72rem !important; /* Tamaño compacto */
+        font-weight: 600 !important;
         text-transform: uppercase;
         letter-spacing: 0.07em;
     }
     .metric-value {
-        font-size: 1.55rem;
-        font-weight: 800;
-        margin: 5px 0;
+        font-size: 1.25rem !important; /* Tamaño compacto */
+        font-weight: 800 !important;
+        margin: 3px 0 !important;
         color: #ffffff;
     }
     .metric-sub {
-        font-size: 0.8rem;
-        color: #a1a1aa;
+        font-size: 0.7rem !important; /* Tamaño compacto */
+        color: #a1a1aa !important;
     }
     
     /* Estilización del menú lateral */
@@ -1849,7 +1849,7 @@ token_price_cop = token_price_usd * usd_cop
 
 if not st.session_state.logged_in:
     st.sidebar.title("🔐 Alianza CryptoWallet")
-    st.sidebar.markdown("<div style='background-color: #1e293b; padding: 6px 12px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 15px; text-align: center;'><span style='color: #ffd700; font-size: 0.85rem; font-weight: bold;'>🚀 Versión de la App: v38</span></div>", unsafe_allow_html=True)
+    st.sidebar.markdown("<div style='background-color: #1e293b; padding: 6px 12px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 15px; text-align: center;'><span style='color: #ffd700; font-size: 0.85rem; font-weight: bold;'>🚀 Versión de la App: v39</span></div>", unsafe_allow_html=True)
     menu = st.sidebar.selectbox("Seleccione una opción", ["Iniciar Sesión", "Registrarse"])
     
     if menu == "Iniciar Sesión":
@@ -1915,7 +1915,7 @@ if not st.session_state.logged_in:
 else:
     # Sidebar de usuario conectado con toques dorados
     st.sidebar.markdown(f"<h2 class='golden-title'>👋 {st.session_state.fullname}</h2>", unsafe_allow_html=True)
-    st.sidebar.markdown("<div style='background-color: #1e293b; padding: 6px 12px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 15px; text-align: center;'><span style='color: #ffd700; font-size: 0.85rem; font-weight: bold;'>🚀 Versión de la App: v38</span></div>", unsafe_allow_html=True)
+    st.sidebar.markdown("<div style='background-color: #1e293b; padding: 6px 12px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 15px; text-align: center;'><span style='color: #ffd700; font-size: 0.85rem; font-weight: bold;'>🚀 Versión de la App: v39</span></div>", unsafe_allow_html=True)
     st.sidebar.markdown(f"**Billetera ID (Código):** `{st.session_state.wallet_code}`")
     
     # Obtener el número de notificaciones pendientes
@@ -2131,7 +2131,7 @@ else:
         with tab_token:
             # DexScreener Embed iframe interactivo de una, directamente sin textos de información redundantes
             dex_embed_html = """
-            <iframe src="https://dexscreener.com/bsc/0xC324649213ec1757190bc4b78bcD41Cc1545C264?embed=1&theme=dark&trades=0" 
+            <iframe src="https://dexscreener.com/bsc/0xC324649213ec1757190bc4b78bcD41Cc1545C264?embed=1&theme=dark&trades=0&info=0&chart=1" 
                     width="100%" 
                     height="600" 
                     style="border:0; border-radius: 8px;">
