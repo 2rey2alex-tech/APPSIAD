@@ -18,7 +18,7 @@ except ImportError:
 
 # Configuración de página de Streamlit
 st.set_page_config(
-    page_title="Alianza CryptoWallet v40",
+    page_title="Alianza CryptoWallet v41",
     page_icon="💼",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -1804,6 +1804,52 @@ st.markdown("""
         font-weight: 900 !important;
     }
 
+    /* FORZAR 3 COLUMNAS DE BALANCES EN DISPOSITIVOS MÓVILES (CELULAR) */
+    @media (max-width: 640px) {
+        [data-testid="stHorizontalBlock"]:has(.card) {
+            display: flex !important;
+            flex-direction: row !important;
+            flex-wrap: nowrap !important;
+            align-items: stretch !important;
+            gap: 6px !important;
+            width: 100% !important;
+        }
+        [data-testid="stHorizontalBlock"]:has(.card) > [data-testid="column"] {
+            flex: 1 1 0% !important;
+            min-width: 0 !important;
+            width: 33.33% !important;
+            max-width: 33.33% !important;
+        }
+        /* Reducir altura mínima de las tarjetas para que quepan en móvil */
+        [data-testid="stHorizontalBlock"]:has(.card) div.card {
+            min-height: 120px !important;
+            padding: 6px 4px !important;
+            display: flex !important;
+            flex-direction: column !important;
+            justify-content: center !important;
+        }
+        /* Ajustar la columna central de dos tarjetas pequeñas */
+        [data-testid="stHorizontalBlock"]:has(.card) div.card[style*="min-height: 86px"] {
+            min-height: 56px !important;
+            margin-bottom: 4px !important;
+            padding: 4px 4px !important;
+        }
+        /* Forzar tamaños de texto compactos en móvil */
+        [data-testid="stHorizontalBlock"]:has(.card) .metric-title {
+            font-size: 0.52rem !important;
+            letter-spacing: 0.01em !important;
+            line-height: 0.7rem !important;
+        }
+        [data-testid="stHorizontalBlock"]:has(.card) .metric-value {
+            font-size: 0.8rem !important;
+            margin: 2px 0 !important;
+        }
+        [data-testid="stHorizontalBlock"]:has(.card) .metric-sub {
+            font-size: 0.48rem !important;
+            line-height: 0.65rem !important;
+        }
+    }
+
     </style>
 """, unsafe_allow_html=True)
 
@@ -1849,7 +1895,7 @@ token_price_cop = token_price_usd * usd_cop
 
 if not st.session_state.logged_in:
     st.sidebar.title("🔐 Alianza CryptoWallet")
-    st.sidebar.markdown("<div style='background-color: #1e293b; padding: 6px 12px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 15px; text-align: center;'><span style='color: #ffd700; font-size: 0.85rem; font-weight: bold;'>🚀 Versión de la App: v40</span></div>", unsafe_allow_html=True)
+    st.sidebar.markdown("<div style='background-color: #1e293b; padding: 6px 12px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 15px; text-align: center;'><span style='color: #ffd700; font-size: 0.85rem; font-weight: bold;'>🚀 Versión de la App: v41</span></div>", unsafe_allow_html=True)
     menu = st.sidebar.selectbox("Seleccione una opción", ["Iniciar Sesión", "Registrarse"])
     
     if menu == "Iniciar Sesión":
@@ -1915,7 +1961,7 @@ if not st.session_state.logged_in:
 else:
     # Sidebar de usuario conectado con toques dorados
     st.sidebar.markdown(f"<h2 class='golden-title'>👋 {st.session_state.fullname}</h2>", unsafe_allow_html=True)
-    st.sidebar.markdown("<div style='background-color: #1e293b; padding: 6px 12px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 15px; text-align: center;'><span style='color: #ffd700; font-size: 0.85rem; font-weight: bold;'>🚀 Versión de la App: v40</span></div>", unsafe_allow_html=True)
+    st.sidebar.markdown("<div style='background-color: #1e293b; padding: 6px 12px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 15px; text-align: center;'><span style='color: #ffd700; font-size: 0.85rem; font-weight: bold;'>🚀 Versión de la App: v41</span></div>", unsafe_allow_html=True)
     st.sidebar.markdown(f"**Billetera ID (Código):** `{st.session_state.wallet_code}`")
     
     # Obtener el número de notificaciones pendientes
@@ -1930,7 +1976,7 @@ else:
     balance_usd = balance * token_price_usd
     balance_cop_equiv = balance_usd * usd_cop
     
-    nav_options = ["🏠 Inicio y Balance", "💸 Enviar SD", "📥 Comprar SD", "🔄 Swap y Retiros", "🛍️ Tienda Alianza", "🚚 Mensajería Alianza", notif_label, "👤 Mi Perfil", "🛡️ Términos y Seguridad"]
+    nav_options = ["🏠 Inicio y Balance", "💸 Enviar SD", "📥 Comprar SD", "🔄 Swap y Retiros", "🛍️ Tienda Alianza", "🚚 Mensajería Alianza", "👥 Mis Referidos", notif_label, "👤 Mi Perfil", "🛡️ Términos y Seguridad"]
     
     # El checkbox de Modo Propietario ahora es exclusivo para la cuenta del propietario de la app (@admin) o wallet_code '99999'
     is_owner_user = (st.session_state.username == 'admin' or st.session_state.wallet_code == '99999' or st.session_state.is_admin)
@@ -2842,6 +2888,163 @@ else:
                 df_m_display = df_m_display[['timestamp', 'Tipo de Pago', 'Rol', 'De', 'Para/Destino', 'Tokens SD', 'Pesos Colombianos', 'Mensaje']]
                 df_m_display.columns = ['Fecha/Hora', 'Tipo de Operación', 'Tu Rol', 'Emisor/Cliente', 'Receptor/Destinatario', 'Tokens SD', 'Pesos Colombianos', 'Mensaje/Detalle']
                 st.dataframe(df_m_display, use_container_width=True)
+
+
+
+    # --- SECCIÓN: MIS REFERIDOS (ÁRBOL GENEALÓGICO) ---
+    elif choice == "👥 Mis Referidos":
+        st.markdown("<h1 class='golden-title'>👥 Mi Red de Referidos</h1>", unsafe_allow_html=True)
+        st.write("Gestiona tu red de invitados de Alianza, visualiza tu árbol genealógico completo y monitorea tus ganancias generadas.")
+        
+        # Tarjeta de invitación principal
+        st.markdown(f"""
+        <div class="card" style="border-left: 5px solid #ffd700; background: linear-gradient(135deg, #0d0d11 0%, #201a00 100%) !important; padding: 20px; margin-bottom: 20px;">
+            <h3 style="color: #ffd700; margin-top: 0; display: flex; align-items: center; gap: 8px;">🔗 ¡Invita Amigos y Gana de por Vida!</h3>
+            <p style="font-size: 0.95rem; line-height: 1.4rem; color: #ffffff; margin-bottom: 15px;">
+                Comparte tu código de referido único. Cuando tus invitados se registren con tu código y compren tokens SIAD (SD), recibirás comisiones directas:
+                <br>• <b>20% de Comisión</b> de cada compra si eres un miembro regular.
+                <br>• <b>👑 25% de Comisión</b> de cada compra de por vida si eres un miembro <b>VIP</b>.
+            </p>
+            <p style="font-size: 0.85rem; color: #a1a1aa; margin-bottom: 5px;">Tu código de referido único:</p>
+            <div style="background-color: #000000; padding: 12px; border-radius: 8px; border: 1px solid #ffd70044; display: flex; justify-content: space-between; align-items: center;">
+                <code style="font-size: 1.6rem; color: #10b981; font-weight: bold; letter-spacing: 0.1em;">{st.session_state.wallet_code}</code>
+                <span style="color: #ffd700; font-size: 0.85rem; font-weight: bold;">🔑 Código Activo</span>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        # Métricas de referidos
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # Total referidos directos
+        cursor.execute("SELECT COUNT(*) FROM users WHERE referred_by = ?", (st.session_state.wallet_code,))
+        direct_count = cursor.fetchone()[0] or 0
+        
+        # Total ganancias de comisiones de referidos (APPROVED)
+        cursor.execute("SELECT SUM(reward_amount_sd) FROM referral_rewards WHERE referrer_code = ? AND status = 'APPROVED'", (st.session_state.wallet_code,))
+        total_commissions_approved = cursor.fetchone()[0] or 0.0
+        
+        # Total ganancias de comisiones de referidos (PENDING)
+        cursor.execute("SELECT SUM(reward_amount_sd) FROM referral_rewards WHERE referrer_code = ? AND status = 'PENDING'", (st.session_state.wallet_code,))
+        total_commissions_pending = cursor.fetchone()[0] or 0.0
+        
+        conn.close()
+        
+        col_ref1, col_ref2, col_ref3 = st.columns(3)
+        with col_ref1:
+            st.markdown(f"""
+            <div class="card" style="border-left: 4px solid #10b981; min-height: 110px; display: flex; flex-direction: column; justify-content: center;">
+                <div class="metric-title">Referidos Directos</div>
+                <div class="metric-value" style="color: #10b981;">{direct_count} Usuarios</div>
+                <div class="metric-sub">Invitados de Nivel 1</div>
+            </div>
+            """, unsafe_allow_html=True)
+        with col_ref2:
+            st.markdown(f"""
+            <div class="card" style="border-left: 4px solid #ffd700; min-height: 110px; display: flex; flex-direction: column; justify-content: center;">
+                <div class="metric-title">Ganancias Cobradas</div>
+                <div class="metric-value" style="color: #ffd700;">{format_num(total_commissions_approved)} SD</div>
+                <div class="metric-sub">Comisiones ya liberadas</div>
+            </div>
+            """, unsafe_allow_html=True)
+        with col_ref3:
+            st.markdown(f"""
+            <div class="card" style="border-left: 4px solid #ef4444; min-height: 110px; display: flex; flex-direction: column; justify-content: center;">
+                <div class="metric-title">Comisiones Pendientes</div>
+                <div class="metric-value" style="color: #ef4444;">{format_num(total_commissions_pending)} SD</div>
+                <div class="metric-sub">En espera de aprobación del admin</div>
+            </div>
+            """, unsafe_allow_html=True)
+            
+        st.subheader("🌲 Árbol Genealógico de Mi Red")
+        st.write("Explora de forma visual la estructura de tu red (Soporta múltiples niveles de invitados en profundidad):")
+        
+        # Función recursiva para obtener árbol
+        def get_referral_tree(parent_code, level=1):
+            conn_tree = get_db_connection()
+            cursor_tree = conn_tree.conn_tree = get_db_connection()
+            cursor_tree = conn_tree.cursor()
+            cursor_tree.execute("""
+                SELECT wallet_code, fullname, username 
+                FROM users 
+                WHERE referred_by = ?
+                ORDER BY fullname ASC
+            """, (parent_code,))
+            referred_users = cursor_tree.fetchall()
+            
+            tree_nodes = []
+            for wallet_code, fullname, username in referred_users:
+                # Obtener ganancias generadas por este referido para su referidor directo (parent_code)
+                cursor_tree.execute("""
+                    SELECT SUM(reward_amount_sd) 
+                    FROM referral_rewards 
+                    WHERE referrer_code = ? AND referred_code = ? AND status = 'APPROVED'
+                """, (parent_code, wallet_code))
+                earned = cursor_tree.fetchone()[0] or 0.0
+                
+                children = get_referral_tree(wallet_code, level + 1)
+                
+                tree_nodes.append({
+                    "wallet_code": wallet_code,
+                    "fullname": fullname,
+                    "username": username,
+                    "earned": earned,
+                    "level": level,
+                    "children": children
+                })
+            conn_tree.close()
+            return tree_nodes
+            
+        # Función recursiva para renderizar HTML
+        def render_referral_tree_html(nodes):
+            if not nodes:
+                return ""
+            
+            html = '<div style="margin-left: 20px; border-left: 2px dashed #ffd70044; padding-left: 15px; margin-top: 5px;">'
+            for node in nodes:
+                html += f"""
+                <div class="card" style="border-left: 4px solid #10b981; margin-bottom: 8px; padding: 12px 15px; display: flex; justify-content: space-between; align-items: center; background-color: #0d0d11; border-color: #ffd70044;">
+                    <div>
+                        <span style="font-weight: bold; color: #ffffff; font-size: 1.0rem;">👤 {node['fullname']}</span>
+                        <span style="color: #a1a1aa; font-size: 0.85rem; margin-left: 8px;">@{node['username']}</span>
+                        <span style="color: #888899; font-size: 0.75rem; display: block; margin-top: 2px;">ID Billetera: <code>{node['wallet_code']}</code> | Nivel {node['level']}</span>
+                    </div>
+                    <div style="text-align: right;">
+                        <span style="color: #ffd700; font-weight: 800; font-size: 1.15rem;">+{format_num(node['earned'])} SD</span>
+                        <span style="color: #888899; font-size: 0.75rem; display: block;">Ganancia aportada</span>
+                    </div>
+                </div>
+                """
+                if node['children']:
+                    html += render_referral_tree_html(node['children'])
+            html += '</div>'
+            return html
+            
+        # Cargar y mostrar árbol genealógico
+        my_tree = get_referral_tree(st.session_state.wallet_code)
+        if len(my_tree) == 0:
+            st.info("Aún no tienes referidos registrados. ¡Comparte tu código inmutable con tus amigos para empezar a ganar de por vida!")
+        else:
+            tree_html = f"""
+            <div style="border: 1px solid #ffd70044; padding: 15px; border-radius: 10px; background-color: #050507; margin-bottom: 25px;">
+                <div class="card" style="border-left: 4px solid #ffd700; background-color: #111116; margin-bottom: 15px; padding: 12px 15px; display: flex; justify-content: space-between; align-items: center;">
+                    <div>
+                        <span style="font-weight: bold; color: #ffd700; font-size: 1.1rem;">👑 Tú ({st.session_state.fullname})</span>
+                        <span style="color: #a1a1aa; font-size: 0.85rem; margin-left: 8px;">@{st.session_state.username}</span>
+                        <span style="color: #888899; font-size: 0.75rem; display: block; margin-top: 2px;">Cima de tu Red | Código: <code>{st.session_state.wallet_code}</code></span>
+                    </div>
+                    <div style="text-align: right;">
+                        <span style="color: #10b981; font-weight: 800; font-size: 1.2rem;">+{format_num(total_commissions_approved)} SD</span>
+                        <span style="color: #888899; font-size: 0.75rem; display: block;">Ganancias Cobradas</span>
+                    </div>
+                </div>
+            """
+            tree_html += render_referral_tree_html(my_tree)
+            tree_html += "</div>"
+            
+            st.markdown(tree_html, unsafe_allow_html=True)
+
 
 
     # --- PERFIL ---
