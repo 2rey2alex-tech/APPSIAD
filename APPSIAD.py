@@ -18,7 +18,7 @@ except ImportError:
 
 # Configuración de página de Streamlit
 st.set_page_config(
-    page_title="Alianza CryptoWallet v39",
+    page_title="Alianza CryptoWallet v40",
     page_icon="💼",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -1849,7 +1849,7 @@ token_price_cop = token_price_usd * usd_cop
 
 if not st.session_state.logged_in:
     st.sidebar.title("🔐 Alianza CryptoWallet")
-    st.sidebar.markdown("<div style='background-color: #1e293b; padding: 6px 12px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 15px; text-align: center;'><span style='color: #ffd700; font-size: 0.85rem; font-weight: bold;'>🚀 Versión de la App: v39</span></div>", unsafe_allow_html=True)
+    st.sidebar.markdown("<div style='background-color: #1e293b; padding: 6px 12px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 15px; text-align: center;'><span style='color: #ffd700; font-size: 0.85rem; font-weight: bold;'>🚀 Versión de la App: v40</span></div>", unsafe_allow_html=True)
     menu = st.sidebar.selectbox("Seleccione una opción", ["Iniciar Sesión", "Registrarse"])
     
     if menu == "Iniciar Sesión":
@@ -1915,7 +1915,7 @@ if not st.session_state.logged_in:
 else:
     # Sidebar de usuario conectado con toques dorados
     st.sidebar.markdown(f"<h2 class='golden-title'>👋 {st.session_state.fullname}</h2>", unsafe_allow_html=True)
-    st.sidebar.markdown("<div style='background-color: #1e293b; padding: 6px 12px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 15px; text-align: center;'><span style='color: #ffd700; font-size: 0.85rem; font-weight: bold;'>🚀 Versión de la App: v39</span></div>", unsafe_allow_html=True)
+    st.sidebar.markdown("<div style='background-color: #1e293b; padding: 6px 12px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 15px; text-align: center;'><span style='color: #ffd700; font-size: 0.85rem; font-weight: bold;'>🚀 Versión de la App: v40</span></div>", unsafe_allow_html=True)
     st.sidebar.markdown(f"**Billetera ID (Código):** `{st.session_state.wallet_code}`")
     
     # Obtener el número de notificaciones pendientes
@@ -1973,36 +1973,33 @@ else:
             
         # Muestra del balance personal
         st.subheader("Balance de tu Cuenta")
-        col1, col2, col3, col4 = st.columns(4)
+        col1, col2, col3 = st.columns(3)
         with col1:
             st.markdown(f"""
-            <div class="card">
+            <div class="card" style="min-height: 180px; display: flex; flex-direction: column; justify-content: center;">
                 <div class="metric-title">Balance en {token['symbol']} ({token['name']})</div>
-                <div class="metric-value" style="color: #10b981;">{format_num(balance)} {token['symbol']}</div>
+                <div class="metric-value" style="color: #10b981; font-size: 1.55rem !important;">{format_num(balance)} {token['symbol']}</div>
                 <div class="metric-sub">Puntos de tu cuenta</div>
             </div>
             """, unsafe_allow_html=True)
         with col2:
             st.markdown(f"""
-            <div class="card">
-                <div class="metric-title">Equivalente en Dólares (USD)</div>
-                <div class="metric-value" style="color: #ffffff;">${balance_usd:,.2f} USD</div>
-                <div class="metric-sub">Cotización: 1 {token['symbol']} = ${token_price_usd:,.4f} USD</div>
+            <div class="card" style="margin-bottom: 8px !important; min-height: 86px; display: flex; flex-direction: column; justify-content: center; padding: 0.5rem 0.8rem !important;">
+                <div class="metric-title" style="font-size: 0.68rem !important;">Equivalente en Dólares (USD)</div>
+                <div class="metric-value" style="color: #ffffff; font-size: 1.15rem !important; margin: 2px 0 !important;">${balance_usd:,.2f} USD</div>
+                <div class="metric-sub" style="font-size: 0.65rem !important;">1 {token['symbol']} = ${token_price_usd:,.4f} USD</div>
+            </div>
+            <div class="card" style="margin-bottom: 0px !important; min-height: 86px; display: flex; flex-direction: column; justify-content: center; padding: 0.5rem 0.8rem !important;">
+                <div class="metric-title" style="font-size: 0.68rem !important;">Valor Teórico en Pesos</div>
+                <div class="metric-value" style="color: #ffffff; font-size: 1.15rem !important; margin: 2px 0 !important;">${balance_cop_equiv:,.0f} COP</div>
+                <div class="metric-sub" style="font-size: 0.65rem !important;">Tasa: $1 USD = ${usd_cop:,.2f} COP</div>
             </div>
             """, unsafe_allow_html=True)
         with col3:
             st.markdown(f"""
-            <div class="card">
-                <div class="metric-title">Valor Teórico en Pesos</div>
-                <div class="metric-value" style="color: #ffffff;">${balance_cop_equiv:,.0f} COP</div>
-                <div class="metric-sub">Tasa de Cambio: $1 USD = ${usd_cop:,.2f} COP</div>
-            </div>
-            """, unsafe_allow_html=True)
-        with col4:
-            st.markdown(f"""
-            <div class="card" style="border-color: #ffd700;">
+            <div class="card" style="border-color: #ffd700; min-height: 180px; display: flex; flex-direction: column; justify-content: center;">
                 <div class="metric-title">Saldo Retirable (COP)</div>
-                <div class="metric-value" style="color: #ffd700;">${balance_cop_user:,.0f} COP</div>
+                <div class="metric-value" style="color: #ffd700; font-size: 1.55rem !important;">${balance_cop_user:,.0f} COP</div>
                 <div class="metric-sub">Saldo líquido cambiado para retiro</div>
             </div>
             """, unsafe_allow_html=True)
@@ -2131,7 +2128,7 @@ else:
         with tab_token:
             # DexScreener Embed iframe interactivo de una, directamente sin textos de información redundantes
             dex_embed_html = """
-            <iframe src="https://dexscreener.com/bsc/0xC324649213ec1757190bc4b78bcD41Cc1545C264?embed=1&theme=dark&trades=0&info=0&chart=1" 
+            <iframe src="https://dexscreener.com/bsc/0xC324649213ec1757190bc4b78bcD41Cc1545C264?embed=1&theme=dark&trades=0" 
                     width="100%" 
                     height="600" 
                     style="border:0; border-radius: 8px;">
