@@ -18,7 +18,7 @@ except ImportError:
 
 # Configuración de página de Streamlit
 st.set_page_config(
-    page_title="Alianza CryptoWallet v43",
+    page_title="Alianza CryptoWallet v45",
     page_icon="💼",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -221,6 +221,11 @@ def init_db():
 
     try:
         cursor.execute("ALTER TABLE withdrawal_requests ADD COLUMN fee_status TEXT DEFAULT 'UNCLAIMED'")
+    except sqlite3.OperationalError:
+        pass
+
+    try:
+        cursor.execute("ALTER TABLE users ADD COLUMN bsc_address TEXT DEFAULT ''")
     except sqlite3.OperationalError:
         pass
 
@@ -859,6 +864,47 @@ def fetch_sd_price_from_dexscreener():
         pass
     return None
 
+@st.cache_data(ttl=30)
+def fetch_bnb_price():
+    try:
+        response = requests.get("https://api.binance.com/api/v3/ticker/price?symbol=BNBUSDT", timeout=3)
+        if response.status_code == 200:
+            return float(response.json().get('price', 580.00))
+    except Exception:
+        pass
+    try:
+        response = requests.get("https://api.coinbase.com/v2/prices/BNB-USD/spot", timeout=3)
+        if response.status_code == 200:
+            return float(response.json()['data']['amount'])
+    except Exception:
+        pass
+    return 580.00
+
+@st.cache_data(ttl=15)
+def fetch_native_balance_rpc(wallet_address, rpc_url="https://bsc-dataseed.binance.org/"):
+    if not wallet_address or not wallet_address.strip().startswith("0x"):
+        return 0.0
+    try:
+        addr = wallet_address.strip()
+        payload = {
+            "jsonrpc": "2.0",
+            "method": "eth_getBalance",
+            "params": [
+                addr,
+                "latest"
+            ],
+            "id": 1
+        }
+        response = requests.post(rpc_url, json=payload, timeout=3)
+        if response.status_code == 200:
+            result = response.json().get("result")
+            if result and result != "0x":
+                raw_balance = int(result, 16)
+                return raw_balance / 10**18
+    except Exception:
+        pass
+    return 0.0
+
 @st.cache_data(ttl=120)
 def fetch_usd_cop_rate():
     try:
@@ -1367,6 +1413,53 @@ def get_transaction_history(wallet_code):
     conn.close()
     return df
 
+def execute_multi_swap(wallet_code, from_curr, to_curr, amount_from, amount_to, price_from_usd, price_to_usd):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        # 1. Deduct From_Currency
+        if from_curr == "SD":
+            cursor.execute("UPDATE users SET balance = balance - ? WHERE wallet_code = ?", (amount_from, wallet_code))
+        elif from_curr == "COP":
+            cursor.execute("UPDATE users SET balance_cop = balance_cop - ? WHERE wallet_code = ?", (amount_from, wallet_code))
+        elif from_curr == "BNB":
+            if "sim_bnb" in st.session_state:
+                st.session_state.sim_bnb -= amount_from
+        elif from_curr == "USDT":
+            if "sim_usdt" in st.session_state:
+                st.session_state.sim_usdt -= amount_from
+            
+        # 2. Add To_Currency
+        if to_curr == "SD":
+            cursor.execute("UPDATE users SET balance = balance + ? WHERE wallet_code = ?", (amount_to, wallet_code))
+        elif to_curr == "COP":
+            cursor.execute("UPDATE users SET balance_cop = balance_cop + ? WHERE wallet_code = ?", (amount_to, wallet_code))
+        elif to_curr == "BNB":
+            if "sim_bnb" in st.session_state:
+                st.session_state.sim_bnb += amount_to
+        elif to_curr == "USDT":
+            if "sim_usdt" in st.session_state:
+                st.session_state.sim_usdt += amount_to
+            
+        # 3. Insert transaction log
+        tx_type = f"SWAP_{from_curr}_{to_curr}"
+        cursor.execute("""
+            INSERT INTO transactions (sender_code, receiver_code, amount)
+            VALUES (?, ?, ?)
+        """, (wallet_code, tx_type, amount_from))
+        
+        conn.commit()
+        conn.close()
+        
+        # 4. Add notification
+        msg = f"🔄 <b>Swap completado:</b> Cambiaste <b>{format_num(amount_from)} {from_curr}</b> por <b>{format_num(amount_to)} {to_curr}</b> exitosamente."
+        add_notification(wallet_code, msg)
+        return True, f"¡Intercambio exitoso! Has convertido {format_num(amount_from)} {from_curr} a {format_num(amount_to)} {to_curr}."
+    except Exception as e:
+        conn.rollback()
+        conn.close()
+        return False, f"Error al procesar el swap: {str(e)}"
+
 def swap_sd_to_cop(user_code, amount_sd, rate_usd, usd_cop_rate):
     if amount_sd <= 0:
         return False, "La cantidad de SD debe ser mayor a cero."
@@ -1585,6 +1678,60 @@ def reject_withdrawal(request_id):
             return False
     conn.close()
     return False
+
+def get_user_bsc_address(wallet_code):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT bsc_address FROM users WHERE wallet_code = ?", (wallet_code,))
+    res = cursor.fetchone()
+    conn.close()
+    return res[0] if res and res[0] else ""
+
+def update_user_bsc_address(wallet_code, bsc_address):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("UPDATE users SET bsc_address = ? WHERE wallet_code = ?", (bsc_address, wallet_code))
+    conn.commit()
+    conn.close()
+    return True
+
+@st.cache_data(ttl=15)
+def fetch_bep20_balance_rpc(wallet_address, contract_address="0xC324649213ec1757190bc4b78bcD41Cc1545C264", rpc_url="https://bsc-dataseed.binance.org/"):
+    if not wallet_address or not wallet_address.strip().startswith("0x"):
+        return 0.0
+    try:
+        addr = wallet_address.strip()
+        if addr.startswith("0x"):
+            addr = addr[2:]
+        if len(addr) != 40:
+            return 0.0
+        
+        # balanceOf selector is 0x70a08231
+        data = "0x70a08231" + addr.lower().zfill(64)
+        
+        payload = {
+            "jsonrpc": "2.0",
+            "method": "eth_call",
+            "params": [
+                {
+                    "to": contract_address,
+                    "data": data
+                },
+                "latest"
+            ],
+            "id": 1
+        }
+        
+        response = requests.post(rpc_url, json=payload, timeout=3)
+        if response.status_code == 200:
+            result = response.json().get("result")
+            if result and result != "0x":
+                raw_balance = int(result, 16)
+                return raw_balance / 10**18
+    except Exception:
+        pass
+    return 0.0
+
 
 # --- INTERFAZ GRÁFICA ---
 
@@ -1915,7 +2062,7 @@ st.markdown(f"""
 
 if not st.session_state.logged_in:
     st.sidebar.title("🔐 Alianza CryptoWallet")
-    st.sidebar.markdown("<div style='background-color: #1e293b; padding: 6px 12px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 15px; text-align: center;'><span style='color: #ffd700; font-size: 0.85rem; font-weight: bold;'>🚀 Versión de la App: v43</span></div>", unsafe_allow_html=True)
+    st.sidebar.markdown("<div style='background-color: #1e293b; padding: 6px 12px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 15px; text-align: center;'><span style='color: #ffd700; font-size: 0.85rem; font-weight: bold;'>🚀 Versión de la App: v45</span></div>", unsafe_allow_html=True)
     menu = st.sidebar.selectbox("Seleccione una opción", ["Iniciar Sesión", "Registrarse"])
     
     if menu == "Iniciar Sesión":
@@ -1981,7 +2128,7 @@ if not st.session_state.logged_in:
 else:
     # Sidebar de usuario conectado con toques dorados
     st.sidebar.markdown(f"<h2 class='golden-title'>👋 {st.session_state.fullname}</h2>", unsafe_allow_html=True)
-    st.sidebar.markdown("<div style='background-color: #1e293b; padding: 6px 12px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 15px; text-align: center;'><span style='color: #ffd700; font-size: 0.85rem; font-weight: bold;'>🚀 Versión de la App: v43</span></div>", unsafe_allow_html=True)
+    st.sidebar.markdown("<div style='background-color: #1e293b; padding: 6px 12px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 15px; text-align: center;'><span style='color: #ffd700; font-size: 0.85rem; font-weight: bold;'>🚀 Versión de la App: v45</span></div>", unsafe_allow_html=True)
     st.sidebar.markdown(f"**Billetera ID (Código):** `{st.session_state.wallet_code}`")
     
     # Obtener el número de notificaciones pendientes
@@ -1991,6 +2138,14 @@ else:
     # Balance actualizado
     balance, wallet_code, balance_cop_user, is_vip_user = get_user_balance(st.session_state.username)
     st.session_state.wallet_code = wallet_code
+
+    # Sincronización automática de saldo con la Blockchain (Binance Smart Chain) si tiene billetera registrada
+    user_bsc_wallet = get_user_bsc_address(st.session_state.wallet_code)
+    if user_bsc_wallet:
+        blockchain_balance = fetch_bep20_balance_rpc(user_bsc_wallet, token['contract'])
+        # Actualizar SQLite local para mantener coherencia en swaps, cuotas y tienda
+        update_user_balance_and_cop(st.session_state.wallet_code, blockchain_balance, balance_cop_user)
+        balance = blockchain_balance
     
     # Cálculos de balance
     balance_usd = balance * token_price_usd
@@ -2037,6 +2192,12 @@ else:
         if unread_notifs > 0:
             st.info(f"📬 Tienes **{unread_notifs} nueva(s) notificación(es)** sin leer. Revísalas en la pestaña del menú lateral.")
             
+        # Banner de estado de la Sincronización Blockchain
+        if not user_bsc_wallet:
+            st.warning("⚠️ **Sincronización Blockchain Inactiva:** No has configurado tu dirección de billetera real (BSC) en tu Perfil. Tu saldo actual es local. Vincula tu billetera MetaMask/Trust Wallet en **👤 Mi Perfil** para operar con tus tokens reales.")
+        else:
+            st.success(f"🔗 **Blockchain Sincronizada:** Conectado con éxito a Binance Smart Chain. Tu saldo real de tokens BEP-20 es de **{format_num(balance)} {token['symbol']}**.")
+
         # Muestra del balance personal
         st.subheader("Balance de tu Cuenta")
         col1, col2, col3 = st.columns(3)
@@ -2399,76 +2560,191 @@ else:
         st.write("Convierte tus tokens SIAD (SD) a pesos colombianos líquidos e inicia solicitudes de retiro seguras directamente a tu cuenta Nequi.")
         
         tab_swap, tab_withdraw, tab_history_with = st.tabs([
-            "🔄 Convertir SD a Pesos (COP)", 
+            "🔄 Intercambio Multidivisa (Swap)", 
             "💸 Retirar COP a Nequi", 
             "📋 Historial de Retiros"
         ])
         
         with tab_swap:
-            st.subheader("1. Cambiar tus Tokens SD a Pesos Colombianos")
-            st.write(f"Vende tus tokens SD de forma instantánea dentro de la app para agregarlos a tu saldo retirable en pesos colombianos. Tasa de cambio oficial: **1 SD = ${token_price_cop:,.2f} COP**.")
+            st.subheader("🔄 Intercambio Multidivisa (Swap) en Vivo")
+            st.write("Intercambia de forma instantánea entre **BNB**, **SD (SIAD)**, **USDT** y **Pesos Colombianos (COP)** con tasas y cotizaciones de mercado en tiempo real.")
+
+            # 1. Fetch live prices
+            bnb_price_usd = fetch_bnb_price()
+            sd_price_usd = token_price_usd
+            usdt_price_usd = 1.0
+            cop_price_usd = 1.0 / usd_cop if usd_cop > 0 else 1.0 / 4150.0
+
+            # 2. Get user balances
+            user_bsc_wallet = get_user_bsc_address(st.session_state.wallet_code)
             
-            if "swap_amount" not in st.session_state:
-                st.session_state.swap_amount = float(min(10.0, float(balance)))
-            
-            # Clamp value
-            st.session_state.swap_amount = min(max(0.0, float(st.session_state.swap_amount)), float(balance))
-
-            col_sw1, col_sw2 = st.columns([2, 1])
-            with col_sw1:
-                st.write("<b>💡 Selecciona un porcentaje rápido o arrastra la barra de abajo para cotización en vivo:</b>", unsafe_allow_html=True)
-                col_q1, col_q2, col_q3, col_q4 = st.columns(4)
-                if col_q1.button("25%", key="q_btn_25"):
-                    st.session_state.swap_amount = float(balance) * 0.25
-                    st.rerun()
-                if col_q2.button("50%", key="q_btn_50"):
-                    st.session_state.swap_amount = float(balance) * 0.50
-                    st.rerun()
-                if col_q3.button("75%", key="q_btn_75"):
-                    st.session_state.swap_amount = float(balance) * 0.75
-                    st.rerun()
-                if col_q4.button("100%", key="q_btn_100"):
-                    st.session_state.swap_amount = float(balance)
-                    st.rerun()
-
-                # Deslizador interactivo instantáneo para móviles
-                amount_sd_to_swap_slider = st.slider(f"🎚️ Desliza para seleccionar la cantidad de {token['symbol']}:", min_value=0.0, max_value=max(float(balance), 0.0), value=float(st.session_state.swap_amount), step=1.0 if float(balance) > 10 else 0.1, key="swap_slider_key")
-                st.session_state.swap_amount = amount_sd_to_swap_slider
-
-                amount_sd_to_swap = st.number_input(f"O escribe la cantidad exacta de {token['symbol']}:", min_value=0.0000, max_value=max(float(balance), 0.0), value=float(st.session_state.swap_amount), step=1.0, format="%.4f", key="swap_amt_input_field")
-                st.session_state.swap_amount = amount_sd_to_swap
+            # Initialize simulated BNB and USDT balances if not set
+            if "sim_bnb" not in st.session_state:
+                st.session_state.sim_bnb = 1.2500
+            if "sim_usdt" not in st.session_state:
+                st.session_state.sim_usdt = 150.00
                 
-                # Info text for mobile
-                st.info("📱 <b>Tip para celular:</b> Escribe la cantidad y toca la pantalla afuera del teclado o presiona 'Hecho/Enter' para actualizar la conversión en vivo de inmediato.")
+            is_web3_active = bool(user_bsc_wallet and user_bsc_wallet.strip().startswith("0x"))
+            
+            if is_web3_active:
+                user_bsc_wallet = user_bsc_wallet.strip()
+                sd_balance = fetch_bep20_balance_rpc(user_bsc_wallet, token['contract'])
+                bnb_balance = fetch_native_balance_rpc(user_bsc_wallet)
+                usdt_balance = fetch_bep20_balance_rpc(user_bsc_wallet, "0x55d398326f99059ff775485246999027b3197955")
+            else:
+                sd_balance = balance # From SQLite DB
+                bnb_balance = st.session_state.sim_bnb
+                usdt_balance = st.session_state.sim_usdt
+                
+            cop_balance = balance_cop_user # From SQLite DB
 
-                if st.button("Ejecutar Swap de Inmediato", key="execute_swap_direct_btn"):
-                    if amount_sd_to_swap <= 0:
-                        st.error("⚠️ El monto a cambiar debe ser mayor que cero.")
-                    elif amount_sd_to_swap > balance:
-                        st.error("⚠️ Saldo de tokens SD insuficiente para realizar el swap.")
-                    else:
-                        success, msg = swap_sd_to_cop(st.session_state.wallet_code, amount_sd_to_swap, token_price_usd, usd_cop)
-                        if success:
-                            st.session_state.swap_amount = 0.0
-                            st.balloons()
-                            st.success(msg)
-                            st.rerun()
-                        else:
-                            st.error(msg)
-            with col_sw2:
-                preview_cop_val = amount_sd_to_swap * token_price_cop
-                preview_usd_val = amount_sd_to_swap * token_price_usd
+            # Display 4 cards showing balances
+            st.write("<b>💳 Tus Saldos Disponibles para Swap:</b>", unsafe_allow_html=True)
+            
+            # Let's use 4 columns
+            bal_col1, bal_col2, bal_col3, bal_col4 = st.columns(4)
+            with bal_col1:
                 st.markdown(f"""
-                <div class="card" style="border-left: 5px solid #10b981;">
-                    <h4 style="margin-top:0; color:#10b981;">💰 Vista Previa de Liquidación</h4>
-                    <p style="font-size:0.9rem; color:#ffffff; margin: 4px 0;"><b>Cantidad a Cambiar:</b> {format_num(amount_sd_to_swap)} SD</p>
-                    <p style="font-size:0.9rem; color:#ffffff; margin: 4px 0;"><b>Equivalente en Dólares (USD):</b> ${format_num(preview_usd_val)} USD</p>
-                    <p style="font-size:1.15rem; color:#ffd700; font-weight:bold; margin-top:10px;"><b>Recibirás en Pesos (COP):</b> ${format_num(preview_cop_val)} COP</p>
-                    <span style="font-size:0.75rem; color:#a1a1aa; display:block; margin-top:10px;">
-                        ⚠️ El cambio se efectúa con cotizaciones en tiempo real y no se puede anular ni reversar.
-                    </span>
+                <div class="card" style="border-top: 3px solid #f3ba2f; min-height: 90px; padding: 0.5rem !important;">
+                    <div class="metric-title" style="font-size: 0.7rem !important; color: #f3ba2f;">🪙 BNB Balance</div>
+                    <div class="metric-value" style="font-size: 1.15rem !important; color: #ffffff; margin: 2px 0;">{format_num(bnb_balance)} BNB</div>
+                    <div class="metric-sub" style="font-size: 0.65rem !important;">~ ${(bnb_balance * bnb_price_usd * usd_cop):,.0f} COP</div>
                 </div>
                 """, unsafe_allow_html=True)
+            with bal_col2:
+                st.markdown(f"""
+                <div class="card" style="border-top: 3px solid #10b981; min-height: 90px; padding: 0.5rem !important;">
+                    <div class="metric-title" style="font-size: 0.7rem !important; color: #10b981;">🪙 {token['symbol']} Balance</div>
+                    <div class="metric-value" style="font-size: 1.15rem !important; color: #ffffff; margin: 2px 0;">{format_num(sd_balance)} SD</div>
+                    <div class="metric-sub" style="font-size: 0.65rem !important;">~ ${(sd_balance * sd_price_usd * usd_cop):,.0f} COP</div>
+                </div>
+                """, unsafe_allow_html=True)
+            with bal_col3:
+                st.markdown(f"""
+                <div class="card" style="border-top: 3px solid #26a17b; min-height: 90px; padding: 0.5rem !important;">
+                    <div class="metric-title" style="font-size: 0.7rem !important; color: #26a17b;">🪙 USDT Balance</div>
+                    <div class="metric-value" style="font-size: 1.15rem !important; color: #ffffff; margin: 2px 0;">{format_num(usdt_balance)} USDT</div>
+                    <div class="metric-sub" style="font-size: 0.65rem !important;">~ ${(usdt_balance * usdt_price_usd * usd_cop):,.0f} COP</div>
+                </div>
+                """, unsafe_allow_html=True)
+            with bal_col4:
+                st.markdown(f"""
+                <div class="card" style="border-top: 3px solid #ffd700; min-height: 90px; padding: 0.5rem !important;">
+                    <div class="metric-title" style="font-size: 0.7rem !important; color: #ffd700;">💵 Peso COP Balance</div>
+                    <div class="metric-value" style="font-size: 1.15rem !important; color: #ffffff; margin: 2px 0;">${format_num(cop_balance)} COP</div>
+                    <div class="metric-sub" style="font-size: 0.65rem !important;">~ ${(cop_balance * cop_price_usd):,.2f} USD</div>
+                </div>
+                """, unsafe_allow_html=True)
+
+            # Inform user if they are in web3 mode or simulated mode
+            if is_web3_active:
+                st.success(f"🔗 <b>Conectado a BSC:</b> Los saldos de BNB, SD y USDT se obtienen en vivo de tu dirección <code>{user_bsc_wallet}</code>.")
+            else:
+                st.warning("⚠️ <b>Saldos Simulados (Local):</b> No has configurado tu billetera BSC en tu Perfil. Estamos usando saldos de prueba de BNB y USDT para que realices tus swaps libremente.")
+
+            st.write("---")
+
+            # Selection of From/To Currencies
+            col_sel1, col_sel2 = st.columns(2)
+            with col_sel1:
+                from_curr = st.selectbox("💱 Moneda de Origen (Pagas):", ["BNB", "SD", "USDT", "COP"], index=1, key="from_curr_select")
+            with col_sel2:
+                to_options = ["BNB", "SD", "USDT", "COP"]
+                if from_curr in to_options:
+                    to_options.remove(from_curr)
+                to_curr = st.selectbox("🎯 Moneda de Destino (Recibes):", to_options, index=to_options.index("COP") if "COP" in to_options else 0, key="to_curr_select")
+
+            # Get respective balances
+            bal_map = {
+                "BNB": bnb_balance,
+                "SD": sd_balance,
+                "USDT": usdt_balance,
+                "COP": cop_balance
+            }
+            price_map = {
+                "BNB": bnb_price_usd,
+                "SD": sd_price_usd,
+                "USDT": usdt_price_usd,
+                "COP": cop_price_usd
+            }
+
+            max_val = float(bal_map[from_curr])
+
+            col_input1, col_preview = st.columns([2, 1])
+            with col_input1:
+                if f"swap_amt_{from_curr}" not in st.session_state:
+                    st.session_state[f"swap_amt_{from_curr}"] = 0.0
+                
+                # Percent buttons
+                st.write("<b>💡 Proporción rápida:</b>", unsafe_allow_html=True)
+                col_p1, col_p2, col_p3, col_p4 = st.columns(4)
+                if col_p1.button("25%", key="swap_p_25"):
+                    st.session_state[f"swap_amt_{from_curr}"] = max_val * 0.25
+                    st.rerun()
+                if col_p2.button("50%", key="swap_p_50"):
+                    st.session_state[f"swap_amt_{from_curr}"] = max_val * 0.50
+                    st.rerun()
+                if col_p3.button("75%", key="swap_p_75"):
+                    st.session_state[f"swap_amt_{from_curr}"] = max_val * 0.75
+                    st.rerun()
+                if col_p4.button("100%", key="swap_p_100"):
+                    st.session_state[f"swap_amt_{from_curr}"] = max_val
+                    st.rerun()
+
+                # Input fields
+                swap_input_val = st.number_input(
+                    f"Cantidad de {from_curr} a cambiar (Máx: {format_num(max_val)}):",
+                    min_value=0.0000,
+                    max_value=max_val,
+                    value=float(st.session_state[f"swap_amt_{from_curr}"]),
+                    step=0.1 if max_val < 10 else 1.0,
+                    format="%.4f" if from_curr != "COP" else "%.0f",
+                    key="swap_input_field_new"
+                )
+                st.session_state[f"swap_amt_{from_curr}"] = swap_input_val
+
+            # Calculations
+            price_from = price_map[from_curr]
+            price_to = price_map[to_curr]
+
+            # Exchange rate
+            rate = price_from / price_to
+            amount_to_receive = swap_input_val * rate
+
+            with col_preview:
+                st.markdown(f"""
+                <div class="card" style="border-left: 5px solid #10b981; min-height: 150px; display: flex; flex-direction: column; justify-content: center; padding: 0.6rem !important;">
+                    <h4 style="margin-top:0; color:#10b981; font-size: 0.95rem; margin-bottom: 8px;">📊 Tipo de Cambio</h4>
+                    <p style="font-size:0.82rem; color:#ffffff; margin: 2px 0;"><b>Tasa:</b> 1 {from_curr} = {format_num(rate)} {to_curr}</p>
+                    <p style="font-size:0.82rem; color:#a1a1aa; margin: 2px 0;"><b>Valor Origen:</b> ${(swap_input_val * price_from):,.2f} USD</p>
+                    <hr style="border-color: #ffd70033; margin: 8px 0;">
+                    <p style="font-size:1.1rem; color:#ffd700; font-weight:bold; margin: 0;"><b>Recibirás:</b><br>{format_num(amount_to_receive)} {to_curr}</p>
+                </div>
+                """, unsafe_allow_html=True)
+
+            # Swap Button
+            if st.button("🚀 Confirmar Intercambio (Swap)", key="execute_multi_swap_btn"):
+                if swap_input_val <= 0:
+                    st.error("⚠️ El monto a cambiar debe ser mayor que cero.")
+                elif swap_input_val > max_val:
+                    st.error(f"⚠️ Saldo de {from_curr} insuficiente.")
+                else:
+                    success, msg = execute_multi_swap(
+                        st.session_state.wallet_code,
+                        from_curr,
+                        to_curr,
+                        swap_input_val,
+                        amount_to_receive,
+                        price_from,
+                        price_to
+                    )
+                    if success:
+                        st.session_state[f"swap_amt_{from_curr}"] = 0.0
+                        st.balloons()
+                        st.success(msg)
+                        st.rerun()
+                    else:
+                        st.error(msg)
                 
         with tab_withdraw:
             st.subheader("2. Retirar Pesos Colombianos (COP) a tu Cuenta Nequi")
@@ -3113,6 +3389,21 @@ else:
                         else:
                             update_user_nequi(st.session_state.wallet_code, new_user_nequi)
                             st.success("✅ ¡Tu cuenta de Nequi ha sido actualizada!")
+                        st.rerun()
+
+            # Formulario para guardar y actualizar la Billetera BSC (Real Token)
+            user_bsc_wallet_val = get_user_bsc_address(st.session_state.wallet_code)
+            with st.form("edit_bsc_wallet_form"):
+                st.write("<b>🪙 Dirección de Billetera Real (Binance Smart Chain - BSC)</b>", unsafe_allow_html=True)
+                new_bsc_wallet = st.text_input("Ingresa tu dirección de MetaMask / Trust Wallet (0x...):", value=user_bsc_wallet_val, placeholder="Ej. 0x1234567890123456789012345678901234567890")
+                submit_bsc = st.form_submit_button("Sincronizar Billetera BSC")
+                
+                if submit_bsc:
+                    if new_bsc_wallet and (not new_bsc_wallet.strip().startswith("0x") or len(new_bsc_wallet.strip()) != 42):
+                        st.error("⚠️ Por favor ingresa una dirección de billetera BSC (0x...) válida de 42 caracteres.")
+                    else:
+                        update_user_bsc_address(st.session_state.wallet_code, new_bsc_wallet.strip())
+                        st.success("✅ ¡Tu dirección de billetera BSC ha sido sincronizada! Tu saldo de tokens reales ahora se actualizará en tiempo real.")
                         st.rerun()
             
             if st.button("Ir a Comprar SD"):
