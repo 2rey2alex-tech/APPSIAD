@@ -2884,7 +2884,7 @@ st.markdown(f"""
 
 if not st.session_state.logged_in:
     st.sidebar.title("🔐 Alianza CryptoWallet")
-    st.sidebar.markdown("<div style='background-color: #1e293b; padding: 6px 12px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 15px; text-align: center;'><span style='color: #ffd700; font-size: 0.85rem; font-weight: bold;'>🚀 Versión de la App: v64</span></div>", unsafe_allow_html=True)
+    st.sidebar.markdown("<div style='background-color: #1e293b; padding: 6px 12px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 15px; text-align: center;'><span style='color: #ffd700; font-size: 0.85rem; font-weight: bold;'>🚀 Versión de la App: v65</span></div>", unsafe_allow_html=True)
     menu = st.sidebar.selectbox("Seleccione una opción", ["Iniciar Sesión", "Registrarse"])
     
     if menu == "Iniciar Sesión":
@@ -2952,7 +2952,7 @@ if not st.session_state.logged_in:
 else:
     # Sidebar de usuario conectado con toques dorados
     st.sidebar.markdown(f"<h2 class='golden-title'>👋 {st.session_state.fullname}</h2>", unsafe_allow_html=True)
-    st.sidebar.markdown("<div style='background-color: #1e293b; padding: 6px 12px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 15px; text-align: center;'><span style='color: #ffd700; font-size: 0.85rem; font-weight: bold;'>🚀 Versión de la App: v64</span></div>", unsafe_allow_html=True)
+    st.sidebar.markdown("<div style='background-color: #1e293b; padding: 6px 12px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 15px; text-align: center;'><span style='color: #ffd700; font-size: 0.85rem; font-weight: bold;'>🚀 Versión de la App: v65</span></div>", unsafe_allow_html=True)
     st.sidebar.markdown(f"**Billetera ID (Código):** `{st.session_state.wallet_code}`")
     
     # Obtener el número de notificaciones pendientes
@@ -5321,7 +5321,7 @@ else:
         pending_withdraws_count = len(get_pending_withdrawals())
         pending_store_count = len(get_pending_store_purchases())
         
-        tab_mint, tab_claims, tab_withdraws, tab_store, tab_referrals, tab_fees, tab_messenger, tab_broadcast, tab_settings = st.tabs([
+        tab_mint, tab_claims, tab_withdraws, tab_store, tab_referrals, tab_fees, tab_messenger, tab_sports_control, tab_broadcast, tab_settings = st.tabs([
             "💸 Emisión de Monedas", 
             f"📥 Comprobantes por Confirmar ({pending_claims_count})", 
             f"💰 Solicitudes de Retiro ({pending_withdraws_count})",
@@ -5329,6 +5329,7 @@ else:
             f"👥 Comisiones de Referidos ({pending_rewards_count})",
             "📊 Comisiones de Plataforma",
             "🚚 Control de Mensajería",
+            "🏆 Control de La Polla",
             "📢 Enviar Comunicado",
             "⚙️ Configuración del Token y Nequi"
         ])
@@ -5733,6 +5734,114 @@ else:
                 st.dataframe(df_all_m_display, use_container_width=True)
 
 
+        with tab_sports_control:
+            st.subheader("⚽ Control de Juegos de La Polla (Pronósticos Deportivos)")
+            st.write("Crea nuevos partidos de la polla y gestiona los encuentros activos al instante de forma totalmente abierta y visible.")
+            
+            # Form 1: CREAR PARTIDO (Siempre visible, no en expander)
+            st.markdown("""
+            <div style="background-color: #0d0d11; border-left: 5px solid #10b981; padding: 12px 18px; border-radius: 8px; margin-bottom: 15px;">
+                <h4 style="color: #10b981; margin:0;">➕ CREAR Y PUBLICAR NUEVO PARTIDO</h4>
+                <p style="font-size:0.85rem; color:#a1a1aa; margin:2px 0;">Completa los campos para abrir un nuevo encuentro en la polla de los usuarios. Puedes tener múltiples partidos activos al mismo tiempo.</p>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            with st.form("admin_new_match_form_main"):
+                col_n1, col_n2 = st.columns(2)
+                with col_n1:
+                    m_local = st.text_input("Equipo Local:", value="Colombia", key="new_match_local")
+                    m_visitor = st.text_input("Equipo Visitante:", value="Argentina", key="new_match_visitor")
+                    m_cost = st.number_input("Costo del Ticket (SD):", value=1.0, min_value=0.0, format="%.2f", key="new_match_cost")
+                with col_n2:
+                    m_time = st.text_input("Hora de Inicio (ej. Hoy 18:00):", value="Hoy 18:00", key="new_match_time")
+                    m_ends_at = st.text_input("Hora de Finalización (ej. Hoy 20:00):", value="Hoy 20:00", key="new_match_ends_at")
+                    m_prize = st.number_input("Premio por Acierto (SD):", value=3.0, min_value=0.0001, format="%.2f", key="new_match_prize")
+                    
+                submit_new_match = st.form_submit_button("⚽ Publicar Nuevo Partido en La Polla")
+                if submit_new_match:
+                    conn_m_up = get_db_connection()
+                    cursor_m_up = conn_m_up.cursor()
+                    cursor_m_up.execute("""
+                        INSERT INTO sports_bets (match_name, ticket_cost, prize_sd, status, local_team, visitor_team, match_time, ends_at, current_score, match_status)
+                        VALUES (?, ?, ?, 'ACTIVE', ?, ?, ?, ?, '0 - 0', 'No iniciado')
+                    """, (f"{m_local} vs {m_visitor}", m_cost, m_prize, m_local, m_visitor, m_time, m_ends_at))
+                    conn_m_up.commit()
+                    conn_m_up.close()
+                    st.success(f"✅ ¡Partido '{m_local} vs {m_visitor}' publicado con éxito! Ahora tus usuarios pueden verlo y apostar de inmediato.")
+                    st.rerun()
+            
+            st.markdown("---")
+            
+            # Form 2: GESTIONAR PARTIDOS ACTIVOS
+            st.markdown("""
+            <div style="background-color: #0d0d11; border-left: 5px solid #ffd700; padding: 12px 18px; border-radius: 8px; margin-bottom: 15px;">
+                <h4 style="color: #ffd700; margin:0;">✏️ GESTIONAR PARTIDOS EN CURSO</h4>
+                <p style="font-size:0.85rem; color:#a1a1aa; margin:2px 0;">Selecciona cualquier partido activo para editar su marcador, cambiar estados, resolver los premios para los ganadores o anular el juego de inmediato.</p>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            active_bets = get_active_sports_bets()
+            curr_bet = None
+            if active_bets:
+                match_opts_admin = {f"⚽ {b['local_team']} vs {b['visitor_team']} (ID: #{b['id']})": b for b in active_bets}
+                selected_match_label_admin = st.selectbox("🎯 Selecciona el partido activo que deseas configurar:", list(match_opts_admin.keys()), key="main_admin_active_match_selectbox")
+                curr_bet = match_opts_admin[selected_match_label_admin]
+                
+                col_gm1, col_gm2 = st.columns(2)
+                with col_gm1:
+                    st.write("<b>✏️ Editar Detalles del Partido:</b>", unsafe_allow_html=True)
+                    with st.form("main_admin_edit_match_form"):
+                        e_local = st.text_input("Equipo Local:", value=curr_bet["local_team"])
+                        e_visitor = st.text_input("Equipo Visitante:", value=curr_bet["visitor_team"])
+                        e_time = st.text_input("Hora de Inicio:", value=curr_bet["match_time"])
+                        e_ends_at = st.text_input("Hora de Finalización:", value=curr_bet["ends_at"])
+                        e_score = st.text_input("Marcador Actual:", value=curr_bet["current_score"])
+                        e_status = st.text_input("Estado / Minuto:", value=curr_bet["match_status"])
+                        e_cost = st.number_input("Costo del Ticket (SD):", value=float(curr_bet["ticket_cost"]), min_value=0.0, format="%.2f")
+                        e_prize = st.number_input("Premio por Acierto (SD):", value=float(curr_bet["prize_sd"]), min_value=0.0001, format="%.2f")
+                        submit_edit_match = st.form_submit_button("💾 Guardar Cambios")
+                        
+                        if submit_edit_match:
+                            conn_m_edit = get_db_connection()
+                            cursor_m_edit = conn_m_edit.cursor()
+                            cursor_m_edit.execute("""
+                                UPDATE sports_bets 
+                                SET ticket_cost = ?, prize_sd = ?, local_team = ?, visitor_team = ?, 
+                                    match_name = ?, match_time = ?, ends_at = ?, current_score = ?, match_status = ? 
+                                WHERE id = ?
+                            """, (e_cost, e_prize, e_local, e_visitor, f"{e_local} vs {e_visitor}", e_time, e_ends_at, e_score, e_status, curr_bet["id"]))
+                            conn_m_edit.commit()
+                            conn_m_edit.close()
+                            st.success("✅ ¡Los datos del partido se han actualizado con éxito!")
+                            st.rerun()
+                with col_gm2:
+                    st.write("<b>🏁 Declarar Resultado y Pagar Ganadores:</b>", unsafe_allow_html=True)
+                    st.warning(f"Partido a Resolver: {curr_bet['match_name']} (ID: #{curr_bet['id']})")
+                    with st.form("main_admin_resolve_match_form"):
+                        winner_choice = st.selectbox("Selecciona la Opción Ganadora:", ["LOCAL", "EMPATE", "VISITANTE"])
+                        submit_resolve = st.form_submit_button("🏁 Confirmar Resultado y Pagar Premios")
+                        if submit_resolve:
+                            success_res, msg_res = resolve_sports_bet(curr_bet["id"], winner_choice)
+                            if success_res:
+                                st.success(msg_res)
+                                st.balloons()
+                                st.rerun()
+                            else:
+                                st.error(msg_res)
+                    st.write("---")
+                    st.write("<b>❌ Anular Partido (Reembolsa el costo del ticket a todos los usuarios):</b>", unsafe_allow_html=True)
+                    with st.form("main_admin_annul_match_form"):
+                        submit_annul = st.form_submit_button("❌ Anular Partido y Devolver SD")
+                        if submit_annul:
+                            success_an, msg_an = annul_sports_bet(curr_bet["id"])
+                            if success_an:
+                                st.success(msg_an)
+                                st.rerun()
+                            else:
+                                st.error(msg_an)
+            else:
+                st.info("ℹ️ No hay ningún partido activo en este momento. ¡Usa el formulario de arriba para publicar uno nuevo!")
+
         with tab_broadcast:
             st.subheader("📢 Enviar Comunicado Global a todos los Usuarios")
             st.write("Escribe un mensaje que desees difundir de forma masiva a todos los usuarios registrados en sus bandejas de entrada (Notificaciones).")
@@ -5856,101 +5965,8 @@ else:
             # 3. CONTROL PRONÓSTICOS DEPORTIVOS (LA POLLA)
             with tab_adm_sports:
                 st.subheader("⚽ Administrar Pronósticos Deportivos (La Polla)")
-                st.write("Establece los partidos activos, el costo de participación y el premio. También puedes editar, anular o resolver cada partido y pagar a los ganadores.")
+                st.info("ℹ️ El panel completo para publicar nuevos partidos, editar marcadores, anular o pagar premios ha sido trasladado a una pestaña principal dedicada: **🏆 Control de La Polla** en tu menú de administrador superior para un acceso rápido y 100% visible sin expanders.")
                 
-                active_bets = get_active_sports_bets()
-                curr_bet = None
-                
-                if active_bets:
-                    match_opts_admin = {f"⚽ {b['local_team']} vs {b['visitor_team']} (ID: #{b['id']})": b for b in active_bets}
-                    selected_match_label_admin = st.selectbox("🎯 Selecciona el partido activo a editar, resolver o anular:", list(match_opts_admin.keys()), key="admin_active_match_selectbox")
-                    curr_bet = match_opts_admin[selected_match_label_admin]
-                else:
-                    st.info("ℹ️ No hay ningún partido activo en este momento.")
-                
-                col_ab1, col_ab2 = st.columns(2)
-                with col_ab1:
-                    with st.expander("📢 Publicar Nuevo Partido Activo (Desde Cero)", expanded=(curr_bet is None)):
-                        with st.form("admin_new_match_form"):
-                            m_local = st.text_input("Equipo Local:", value="Colombia")
-                            m_visitor = st.text_input("Equipo Visitante:", value="Argentina")
-                            m_time = st.text_input("Hora de Inicio (ej. 2026-09-03 18:00):", value="Hoy 18:00")
-                            m_ends_at = st.text_input("Hora de Finalización (ej. 2026-09-03 20:00):", value="Hoy 20:00")
-                            m_cost = st.number_input("Costo del Ticket (SD):", value=1.0, min_value=0.0, format="%.2f")
-                            m_prize = st.number_input("Premio por Acierto (SD):", value=3.0, min_value=0.0001, format="%.2f")
-                            submit_new_match = st.form_submit_button("⚽ Publicar Nuevo Partido")
-                            
-                            if submit_new_match:
-                                conn_m_up = get_db_connection()
-                                cursor_m_up = conn_m_up.cursor()
-                                # Insertar nuevo partido activo (no cancelamos los demás!)
-                                cursor_m_up.execute("""
-                                    INSERT INTO sports_bets (match_name, ticket_cost, prize_sd, status, local_team, visitor_team, match_time, ends_at, current_score, match_status)
-                                    VALUES (?, ?, ?, 'ACTIVE', ?, ?, ?, ?, '0 - 0', 'No iniciado')
-                                """, (f"{m_local} vs {m_visitor}", m_cost, m_prize, m_local, m_visitor, m_time, m_ends_at))
-                                conn_m_up.commit()
-                                conn_m_up.close()
-                                st.success(f"✅ ¡Partido '{m_local} vs {m_visitor}' publicado con éxito!")
-                                st.rerun()
-                                
-                    if curr_bet:
-                        with st.expander("✏️ Editar/Actualizar Partido Seleccionado (Marcador, Tiempos, Equipos, Premio)", expanded=True):
-                            with st.form("admin_edit_match_form"):
-                                e_local = st.text_input("Equipo Local:", value=curr_bet["local_team"])
-                                e_visitor = st.text_input("Equipo Visitante:", value=curr_bet["visitor_team"])
-                                e_time = st.text_input("Hora de Inicio:", value=curr_bet["match_time"])
-                                e_ends_at = st.text_input("Hora de Finalización:", value=curr_bet["ends_at"])
-                                e_score = st.text_input("Marcador Actual (ej. 1 - 0):", value=curr_bet["current_score"])
-                                e_status = st.text_input("Estado / Minuto (ej. En Vivo - Minuto 45):", value=curr_bet["match_status"])
-                                e_cost = st.number_input("Costo del Ticket (SD):", value=float(curr_bet["ticket_cost"]), min_value=0.0, format="%.2f")
-                                e_prize = st.number_input("Premio por Acierto (SD):", value=float(curr_bet["prize_sd"]), min_value=0.0001, format="%.2f")
-                                submit_edit_match = st.form_submit_button("💾 Guardar Cambios del Partido Seleccionado")
-                                
-                                if submit_edit_match:
-                                    conn_m_edit = get_db_connection()
-                                    cursor_m_edit = conn_m_edit.cursor()
-                                    cursor_m_edit.execute("""
-                                        UPDATE sports_bets 
-                                        SET ticket_cost = ?, prize_sd = ?, local_team = ?, visitor_team = ?, 
-                                            match_name = ?, match_time = ?, ends_at = ?, current_score = ?, match_status = ? 
-                                        WHERE id = ?
-                                    """, (e_cost, e_prize, e_local, e_visitor, f"{e_local} vs {e_visitor}", e_time, e_ends_at, e_score, e_status, curr_bet["id"]))
-                                    conn_m_edit.commit()
-                                    conn_m_edit.close()
-                                    st.success("✅ ¡Los datos del partido se han actualizado con éxito!")
-                                    st.rerun()
-                            
-                with col_ab2:
-                    if curr_bet:
-                        st.write("<b>🏁 Resolver Partido Seleccionado (Pagar Premios):</b>", unsafe_allow_html=True)
-                        st.warning(f"Partido a Resolver: {curr_bet['match_name']} (ID: #{curr_bet['id']})")
-                        with st.form("admin_resolve_match_form"):
-                            winner_choice = st.selectbox("Selecciona la Opción Ganadora:", ["LOCAL", "EMPATE", "VISITANTE"])
-                            submit_resolve = st.form_submit_button("🏁 Confirmar Resultado y Pagar Ganadores")
-                            
-                            if submit_resolve:
-                                success_res, msg_res = resolve_sports_bet(curr_bet["id"], winner_choice)
-                                if success_res:
-                                    st.success(msg_res)
-                                    st.balloons()
-                                    st.rerun()
-                                else:
-                                    st.error(msg_res)
-                                    
-                        st.markdown("---")
-                        st.write("<b>❌ Anular Partido y Reembolsar Tickets:</b>", unsafe_allow_html=True)
-                        st.write("Si el partido seleccionado fue suspendido, cancelado o aplazado, presiona el botón de abajo para anularlo y reembolsar el costo del ticket completo a todos los usuarios de forma automática.")
-                        if st.button("❌ Anular Partido y Reembolsar Saldo", key=f"annul_sports_bet_btn_{curr_bet['id']}"):
-                            with st.spinner("⏳ Procesando anulación y reembolsos en la base de datos..."):
-                                success_an, msg_an = annul_sports_bet(curr_bet["id"])
-                                if success_an:
-                                    st.success(msg_an)
-                                    import time
-                                    time.sleep(1.5)
-                                    st.rerun()
-                                else:
-                                    st.error(msg_an)
-
             # 4. CONTROL SUBASTAS DE CENTAVOS
             with tab_adm_penny:
                 st.subheader("🔨 Configurar Subasta de Centavos")
