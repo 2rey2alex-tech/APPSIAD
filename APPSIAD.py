@@ -7,7 +7,7 @@ import numpy as np
 import plotly.express as px
 import requests
 import textwrap
-VIP_BADGE_B64 = "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"
+VIP_BADGE_B64 = "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"
 
 from datetime import datetime, timedelta
 
@@ -1710,6 +1710,51 @@ def annul_sports_bet(match_id):
         conn.close()
         return False, f"Error al anular el partido: {str(e)}"
 
+def get_all_sports_bets():
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    bets = []
+    try:
+        cursor.execute("""
+            SELECT id, match_name, ticket_cost, prize_sd, status, winner_option,
+                   local_team, visitor_team, match_time, ends_at, current_score, match_status
+            FROM sports_bets ORDER BY id DESC
+        """)
+        rows = cursor.fetchall()
+        for r in rows:
+            bets.append({
+                "id": r[0],
+                "match_name": r[1],
+                "ticket_cost": r[2],
+                "prize_sd": r[3],
+                "status": r[4],
+                "winner_option": r[5],
+                "local_team": r[6] if len(r) > 6 and r[6] else "",
+                "visitor_team": r[7] if len(r) > 7 and r[7] else "",
+                "match_time": r[8] if len(r) > 8 and r[8] else "",
+                "ends_at": r[9] if len(r) > 9 and r[9] else "",
+                "current_score": r[10] if len(r) > 10 and r[10] else "0 - 0",
+                "match_status": r[11] if len(r) > 11 and r[11] else "No iniciado"
+            })
+    except Exception:
+        pass
+    conn.close()
+    return bets
+
+def delete_sports_bet(match_id):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("DELETE FROM user_predictions WHERE match_id = ?", (match_id,))
+        cursor.execute("DELETE FROM sports_bets WHERE id = ?", (match_id,))
+        conn.commit()
+        conn.close()
+        return True, "Partido eliminado de la base de datos definitivamente junto con sus predicciones asociadas."
+    except Exception as e:
+        conn.rollback()
+        conn.close()
+        return False, f"Error al eliminar partido: {str(e)}"
+
 
 def buy_sports_prediction(user_code, match_id, chosen_prediction):
     bet = get_sports_bet_by_id(match_id)
@@ -2884,7 +2929,7 @@ st.markdown(f"""
 
 if not st.session_state.logged_in:
     st.sidebar.title("🔐 Alianza CryptoWallet")
-    st.sidebar.markdown("<div style='background-color: #1e293b; padding: 6px 12px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 15px; text-align: center;'><span style='color: #ffd700; font-size: 0.85rem; font-weight: bold;'>🚀 Versión de la App: v65</span></div>", unsafe_allow_html=True)
+    st.sidebar.markdown("<div style='background-color: #1e293b; padding: 6px 12px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 15px; text-align: center;'><span style='color: #ffd700; font-size: 0.85rem; font-weight: bold;'>🚀 Versión de la App: v67</span></div>", unsafe_allow_html=True)
     menu = st.sidebar.selectbox("Seleccione una opción", ["Iniciar Sesión", "Registrarse"])
     
     if menu == "Iniciar Sesión":
@@ -2952,7 +2997,7 @@ if not st.session_state.logged_in:
 else:
     # Sidebar de usuario conectado con toques dorados
     st.sidebar.markdown(f"<h2 class='golden-title'>👋 {st.session_state.fullname}</h2>", unsafe_allow_html=True)
-    st.sidebar.markdown("<div style='background-color: #1e293b; padding: 6px 12px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 15px; text-align: center;'><span style='color: #ffd700; font-size: 0.85rem; font-weight: bold;'>🚀 Versión de la App: v65</span></div>", unsafe_allow_html=True)
+    st.sidebar.markdown("<div style='background-color: #1e293b; padding: 6px 12px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 15px; text-align: center;'><span style='color: #ffd700; font-size: 0.85rem; font-weight: bold;'>🚀 Versión de la App: v67</span></div>", unsafe_allow_html=True)
     st.sidebar.markdown(f"**Billetera ID (Código):** `{st.session_state.wallet_code}`")
     
     # Obtener el número de notificaciones pendientes
@@ -2982,7 +3027,7 @@ else:
     balance_usd = balance * token_price_usd
     balance_cop_equiv = balance_usd * usd_cop
     
-    nav_options = ["🏠 Inicio y Balance", "💸 Enviar SD", "📥 Comprar SD", "🔄 Swap y Retiros", "🛍️ Tienda Alianza", "🚚 Mensajería Alianza", "👥 Mis Referidos", notif_label, "👤 Mi Perfil", "🛡️ Términos y Seguridad"]
+    nav_options = ["🏠 Inicio y Balance", "💸 Enviar SD", "📥 Comprar SD", "🔄 Swap y Retiros", "🛍️ Tienda Alianza", "🎮 Juegos", "🚚 Mensajería Alianza", "👥 Mis Referidos", notif_label, "👤 Mi Perfil", "🛡️ Términos y Seguridad"]
     
     # El checkbox de Modo Propietario ahora es exclusivo para la cuenta del propietario de la app (@admin) o wallet_code '99999'
     is_owner_user = (st.session_state.username == 'admin' or st.session_state.wallet_code == '99999' or st.session_state.is_admin)
@@ -3853,11 +3898,10 @@ else:
             """, unsafe_allow_html=True)
 
         # 4 TABS DE LA TIENDA
-        tab_pines, tab_recargas, tab_comida, tab_juegos = st.tabs([
+        tab_pines, tab_recargas, tab_comida = st.tabs([
             "🎁 Pines y Membresías",
             "📱 Recargas Móviles",
-            "🍔 Alimentos y Bebidas",
-            "🎮 Juegos y Sorteos"
+            "🍔 Alimentos y Bebidas"
         ])
 
         # Tab 1: Pines y Membresías
@@ -3989,598 +4033,641 @@ else:
                             else:
                                 st.error(msg)
 
-        # Tab 4: Juegos y Sorteos (Lucky Spin, PPT, Trivia, Pronósticos, Subastas, Raspa y Gana, Consejo Cripto)
-        with tab_juegos:
-            st.subheader("🎮 Centro de Micro-Juegos y Sorteos de Alta Rotación")
-            st.write("Gasta tus fracciones de tokens para ganar grandes premios acumulados. ¡Toda la diversión en un solo lugar!")
-            
-            # Tarjeta de Saldo Local de Juego Disponible
-            st.markdown(f"""
-            <div style="background-color: #0d0d11; border: 1.5px solid #10b981; border-radius: 12px; padding: 12px 20px; display: flex; align-items: center; justify-content: space-between; margin-bottom: 15px; box-shadow: 0 4px 15px rgba(16, 185, 129, 0.15);">
-                <div>
-                    <span style="color:#10b981; font-weight:bold; font-size:1.0rem;">💳 Saldo de Juego Disponible (Base de Datos):</span>
-                    <span style="color:#a1a1aa; font-size:0.8rem; display:block; margin-top:2px;">Este saldo se descuenta y se abona localmente sin pagar comisiones de gas.</span>
-                </div>
-                <div style="text-align:right;">
-                    <span style="color:#10b981; font-weight:900; font-size:1.4rem;">{format_num(balance_db)} {token['symbol']}</span>
-                </div>
+
+    # --- JUEGOS Y SORTEOS (LUCKY SPIN, PPT, TRIVIA, POLA, SUBASTAS, RASPA) ---
+    elif choice == "🎮 Juegos":
+        st.subheader("🎮 Centro de Micro-Juegos y Sorteos de Alta Rotación")
+        st.write("Gasta tus fracciones de tokens para ganar grandes premios acumulados. ¡Toda la diversión en un solo lugar!")
+        
+        # Tarjeta de Saldo Local de Juego Disponible
+        st.markdown(f"""
+        <div style="background-color: #0d0d11; border: 1.5px solid #10b981; border-radius: 12px; padding: 12px 20px; display: flex; align-items: center; justify-content: space-between; margin-bottom: 15px; box-shadow: 0 4px 15px rgba(16, 185, 129, 0.15);">
+            <div>
+                <span style="color:#10b981; font-weight:bold; font-size:1.0rem;">💳 Saldo de Juego Disponible (Base de Datos):</span>
+                <span style="color:#a1a1aa; font-size:0.8rem; display:block; margin-top:2px;">Este saldo se descuenta y se abona localmente sin pagar comisiones de gas.</span>
             </div>
-            """, unsafe_allow_html=True)
-            
+            <div style="text-align:right;">
+                <span style="color:#10b981; font-weight:900; font-size:1.4rem;">{format_num(balance_db)} {token['symbol']}</span>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+        
 
         
-            # Sub-tabs para organizar los 7 juegos
-            tab_sub_spin, tab_sub_ppt, tab_sub_trivia, tab_sub_bets, tab_sub_auc, tab_sub_scratch, tab_sub_tip = st.tabs([
-                "🎡 Lucky Spin",
-                "🥊 Piedra/Papel/Tijera",
-                "🧠 Trivia Alianza",
-                "⚽ Pronósticos",
-                "🔨 Subastas",
-                "🎟️ Raspa y Gana",
-                "🔮 Consejo Cripto"
-            ])
+        # Sub-tabs para organizar los 7 juegos
+        tab_sub_spin, tab_sub_ppt, tab_sub_trivia, tab_sub_bets, tab_sub_auc, tab_sub_scratch, tab_sub_tip = st.tabs([
+            "🎡 Lucky Spin",
+            "🥊 Piedra/Papel/Tijera",
+            "🧠 Trivia Alianza",
+            "⚽ Pronósticos",
+            "🔨 Subastas",
+            "🎟️ Raspa y Gana",
+            "🔮 Consejo Cripto"
+        ])
         
-            # ----------------- JUEGO 1: LUCKY SPIN (RULETA) -----------------
-            with tab_sub_spin:
-                st.markdown("#### 🎡 La Ruleta de la Fortuna Alianza (Lucky Spin)")
-            
-                _, spin_cost = get_game_setting('ruleta_cost', default_num=1.0)
-                prizes_str, _ = get_game_setting('ruleta_prizes', default_val='0.1,0.5,1.0,2.0,5.0,0.0')
-                probs_str, _ = get_game_setting('ruleta_prob', default_val='20,30,25,15,5,5')
-            
-                spin_prizes = [float(p) for p in prizes_str.split(',') if p]
-                spin_probs = [int(p) for p in probs_str.split(',') if p]
-            
-                col_spin_l, col_spin_r = st.columns([1, 1])
-                with col_spin_l:
-                    st.markdown(clean_html(f"""
-                    <div class="card" style="border-left: 4px solid #ffd700;">
-                        <h5 style="color:#ffd700; margin-top:0;">⚡ Multiplica tus Monedas</h5>
-                        <p style="font-size:0.9rem; color:#ffffff;">Girar la ruleta tiene un costo de <b>{format_num(spin_cost)} SD</b>. Los premios configurados por el administrador hoy son:</p>
-                        <ul style="font-size:0.85rem; color:#a1a1aa; padding-left:20px;">
-                            <li>🚀 Gran Premio: <b>{format_num(max(spin_prizes))} SD</b></li>
-                            <li>💎 Otros Premios: {', '.join([f"{format_num(p)} SD" for p in sorted(list(set(spin_prizes))) if p > 0])}</li>
-                            <li>💀 Casilla perder: 0 SD</li>
-                        </ul>
-                    </div>
-                    """), unsafe_allow_html=True)
-                with col_spin_r:
-                    if st.button("🎡 Girar Ruleta Ahora", key="play_spin_btn"):
-                        # Verificar saldo
-                        if balance_db < spin_cost:
-                            st.error(f"⚠️ Saldo insuficiente para girar la ruleta. Cuesta {format_num(spin_cost)} SD.")
-                        else:
-                            with st.spinner("⏳ ¡Girando la ruleta con física 3D en la blockchain...!"):
-                                import time
-                                time.sleep(2.0) # Simulación de animación
-                            
-                                # Realizar tiro probabilístico
-                                import random
-                                choices = list(range(len(spin_prizes)))
-                                chosen_idx = random.choices(choices, weights=spin_probs, k=1)[0]
-                                won_prize = spin_prizes[chosen_idx]
-                            
-                                conn_g = get_db_connection()
-                                cursor_g = conn_g.cursor()
-                                try:
-                                    # Cobrar tarifa: del usuario al admin (99999)
-                                    cursor_g.execute("UPDATE users SET balance = balance - ? WHERE wallet_code = ?", (spin_cost, st.session_state.wallet_code))
-                                    cursor_g.execute("UPDATE users SET balance = balance + ? WHERE wallet_code = '99999'", (spin_cost,))
-                                    # Registrar transacción
+        # ----------------- JUEGO 1: LUCKY SPIN (RULETA) -----------------
+        with tab_sub_spin:
+            st.markdown("#### 🎡 La Ruleta de la Fortuna Alianza (Lucky Spin)")
+        
+            _, spin_cost = get_game_setting('ruleta_cost', default_num=1.0)
+            prizes_str, _ = get_game_setting('ruleta_prizes', default_val='0.1,0.5,1.0,2.0,5.0,0.0')
+            probs_str, _ = get_game_setting('ruleta_prob', default_val='20,30,25,15,5,5')
+        
+            spin_prizes = [float(p) for p in prizes_str.split(',') if p]
+            spin_probs = [int(p) for p in probs_str.split(',') if p]
+        
+            col_spin_l, col_spin_r = st.columns([1, 1])
+            with col_spin_l:
+                st.markdown(clean_html(f"""
+                <div class="card" style="border-left: 4px solid #ffd700;">
+                    <h5 style="color:#ffd700; margin-top:0;">⚡ Multiplica tus Monedas</h5>
+                    <p style="font-size:0.9rem; color:#ffffff;">Girar la ruleta tiene un costo de <b>{format_num(spin_cost)} SD</b>. Los premios configurados por el administrador hoy son:</p>
+                    <ul style="font-size:0.85rem; color:#a1a1aa; padding-left:20px;">
+                        <li>🚀 Gran Premio: <b>{format_num(max(spin_prizes))} SD</b></li>
+                        <li>💎 Otros Premios: {', '.join([f"{format_num(p)} SD" for p in sorted(list(set(spin_prizes))) if p > 0])}</li>
+                        <li>💀 Casilla perder: 0 SD</li>
+                    </ul>
+                </div>
+                """), unsafe_allow_html=True)
+            with col_spin_r:
+                if st.button("🎡 Girar Ruleta Ahora", key="play_spin_btn"):
+                    # Verificar saldo
+                    if balance_db < spin_cost:
+                        st.error(f"⚠️ Saldo insuficiente para girar la ruleta. Cuesta {format_num(spin_cost)} SD.")
+                    else:
+                        with st.spinner("⏳ ¡Girando la ruleta con física 3D en la blockchain...!"):
+                            import time
+                            time.sleep(2.0) # Simulación de animación
+                        
+                            # Realizar tiro probabilístico
+                            import random
+                            choices = list(range(len(spin_prizes)))
+                            chosen_idx = random.choices(choices, weights=spin_probs, k=1)[0]
+                            won_prize = spin_prizes[chosen_idx]
+                        
+                            conn_g = get_db_connection()
+                            cursor_g = conn_g.cursor()
+                            try:
+                                # Cobrar tarifa: del usuario al admin (99999)
+                                cursor_g.execute("UPDATE users SET balance = balance - ? WHERE wallet_code = ?", (spin_cost, st.session_state.wallet_code))
+                                cursor_g.execute("UPDATE users SET balance = balance + ? WHERE wallet_code = '99999'", (spin_cost,))
+                                # Registrar transacción
+                                cursor_g.execute("""
+                                    INSERT INTO transactions (sender_code, receiver_code, amount)
+                                    VALUES (?, '99999_LUCKY_SPIN_FEE', ?)
+                                """, (st.session_state.wallet_code, spin_cost))
+                                
+                                if won_prize > 0:
+                                    # Pagar premio: del admin (99999) al usuario
+                                    cursor_g.execute("UPDATE users SET balance = balance - ? WHERE wallet_code = '99999'", (won_prize,))
+                                    cursor_g.execute("UPDATE users SET balance = balance + ? WHERE wallet_code = ?", (won_prize, st.session_state.wallet_code))
                                     cursor_g.execute("""
                                         INSERT INTO transactions (sender_code, receiver_code, amount)
-                                        VALUES (?, '99999_LUCKY_SPIN_FEE', ?)
-                                    """, (st.session_state.wallet_code, spin_cost))
-                                    
-                                    if won_prize > 0:
-                                        # Pagar premio: del admin (99999) al usuario
-                                        cursor_g.execute("UPDATE users SET balance = balance - ? WHERE wallet_code = '99999'", (won_prize,))
-                                        cursor_g.execute("UPDATE users SET balance = balance + ? WHERE wallet_code = ?", (won_prize, st.session_state.wallet_code))
-                                        cursor_g.execute("""
-                                            INSERT INTO transactions (sender_code, receiver_code, amount)
-                                            VALUES ('99999_LUCKY_SPIN_REWARD', ?, ?)
-                                        """, (st.session_state.wallet_code, won_prize))
-                                    
-                                    conn_g.commit()
-                                    conn_g.close()
+                                        VALUES ('99999_LUCKY_SPIN_REWARD', ?, ?)
+                                    """, (st.session_state.wallet_code, won_prize))
                                 
-                                    if won_prize > spin_cost:
-                                        st.balloons()
-                                        st.success(f"🎉 ¡SÚPER GANANCIA! La ruleta se detuvo en: ¡{format_num(won_prize)} SD! Te has acreditado el premio.")
-                                    elif won_prize > 0:
-                                        st.success(f"👍 ¡Felicidades! Ganaste {format_num(won_prize)} SD en la ruleta.")
-                                    else:
-                                        st.warning("😢 Esta vez no tuviste suerte y cayó en 0 SD. ¡Intenta de nuevo, la suerte cambia en un segundo!")
-                                    
-                                    # Letrero visible por exactamente 4 segundos
-                                    time.sleep(4.0)
-                                    st.rerun()
-                                except Exception as e:
-                                    conn_g.rollback()
-                                    conn_g.close()
-                                    st.error(f"Error al procesar el tiro: {str(e)}")
-
-            # ----------------- JUEGO 2: PIEDRA, PAPEL O TIJERA contra BOT -----------------
-            with tab_sub_ppt:
-                st.markdown("#### 🥊 Duelo Rápido: Piedra, Papel o Tijera")
-                _, ppt_mult = get_game_setting('ppt_multiplier', default_num=1.90)
-            
-                st.write(f"Desafía al Bot Alianza. Si ganas el duelo, te llevas tu apuesta multiplicada por **{format_num(ppt_mult)}x**. Si hay empate, se te devuelve tu apuesta.")
-            
-                col_ppt_l, col_ppt_r = st.columns([1, 1])
-                with col_ppt_l:
-                    chosen_move = st.radio("🥊 Selecciona tu movimiento de ataque:", ["🪨 Piedra", "📄 Papel", "✂️ Tijera"], horizontal=True, key="user_ppt_move_field")
-                    default_bet_val = min(1.0, max(0.1, float(balance_db)))
-                    bet_amount = st.number_input("💵 Cantidad de Tokens SD a apostar en el duelo:", min_value=0.1, max_value=max(float(balance_db), 0.1), value=default_bet_val, format="%.2f", key="user_ppt_bet_field")
-                with col_ppt_r:
-                    if st.button("🥊 Confirmar e Iniciar Duelo", key="play_ppt_btn"):
-                        if balance_db < bet_amount:
-                            st.error("⚠️ Saldo insuficiente para realizar esta apuesta.")
-                        else:
-                            with st.spinner("🥊 ¡Lanzando jugadas al aire... El bot está calculando su defensa!"):
-                                import time
-                                time.sleep(1.5)
+                                conn_g.commit()
+                                conn_g.close()
                             
-                                bot_choices = ["🪨 Piedra", "📄 Papel", "✂️ Tijera"]
-                                import random
-                                bot_move = random.choice(bot_choices)
-                            
-                                # Lógica del ganador
-                                result = "" # 'WIN', 'LOSE', 'DRAW'
-                                if chosen_move == bot_move:
-                                    result = "DRAW"
-                                elif (chosen_move == "🪨 Piedra" and bot_move == "✂️ Tijera") or                                  (chosen_move == "📄 Papel" and bot_move == "🪨 Piedra") or                                  (chosen_move == "✂️ Tijera" and bot_move == "📄 Papel"):
-                                    result = "WIN"
+                                if won_prize > spin_cost:
+                                    st.balloons()
+                                    st.success(f"🎉 ¡SÚPER GANANCIA! La ruleta se detuvo en: ¡{format_num(won_prize)} SD! Te has acreditado el premio.")
+                                elif won_prize > 0:
+                                    st.success(f"👍 ¡Felicidades! Ganaste {format_num(won_prize)} SD en la ruleta.")
                                 else:
-                                    result = "LOSE"
+                                    st.warning("😢 Esta vez no tuviste suerte y cayó en 0 SD. ¡Intenta de nuevo, la suerte cambia en un segundo!")
                                 
-                                conn_p = get_db_connection()
-                                cursor_p = conn_p.cursor()
-                                try:
-                                    # 1. Cobrar la apuesta inicial: de usuario al admin (99999)
-                                    cursor_p.execute("UPDATE users SET balance = balance - ? WHERE wallet_code = ?", (bet_amount, st.session_state.wallet_code))
-                                    cursor_p.execute("UPDATE users SET balance = balance + ? WHERE wallet_code = '99999'", (bet_amount,))
+                                # Letrero visible por exactamente 4 segundos
+                                time.sleep(4.0)
+                                st.rerun()
+                            except Exception as e:
+                                conn_g.rollback()
+                                conn_g.close()
+                                st.error(f"Error al procesar el tiro: {str(e)}")
+
+        # ----------------- JUEGO 2: PIEDRA, PAPEL O TIJERA contra BOT -----------------
+        with tab_sub_ppt:
+            st.markdown("#### 🥊 Duelo Rápido: Piedra, Papel o Tijera")
+            _, ppt_mult = get_game_setting('ppt_multiplier', default_num=1.90)
+        
+            st.write(f"Desafía al Bot Alianza. Si ganas el duelo, te llevas tu apuesta multiplicada por **{format_num(ppt_mult)}x**. Si hay empate, se te devuelve tu apuesta.")
+        
+            col_ppt_l, col_ppt_r = st.columns([1, 1])
+            with col_ppt_l:
+                chosen_move = st.radio("🥊 Selecciona tu movimiento de ataque:", ["🪨 Piedra", "📄 Papel", "✂️ Tijera"], horizontal=True, key="user_ppt_move_field")
+                default_bet_val = min(1.0, max(0.1, float(balance_db)))
+                bet_amount = st.number_input("💵 Cantidad de Tokens SD a apostar en el duelo:", min_value=0.1, max_value=max(float(balance_db), 0.1), value=default_bet_val, format="%.2f", key="user_ppt_bet_field")
+            with col_ppt_r:
+                if st.button("🥊 Confirmar e Iniciar Duelo", key="play_ppt_btn"):
+                    if balance_db < bet_amount:
+                        st.error("⚠️ Saldo insuficiente para realizar esta apuesta.")
+                    else:
+                        with st.spinner("🥊 ¡Lanzando jugadas al aire... El bot está calculando su defensa!"):
+                            import time
+                            time.sleep(1.5)
+                        
+                            bot_choices = ["🪨 Piedra", "📄 Papel", "✂️ Tijera"]
+                            import random
+                            bot_move = random.choice(bot_choices)
+                        
+                            # Lógica del ganador
+                            result = "" # 'WIN', 'LOSE', 'DRAW'
+                            if chosen_move == bot_move:
+                                result = "DRAW"
+                            elif (chosen_move == "🪨 Piedra" and bot_move == "✂️ Tijera") or                                  (chosen_move == "📄 Papel" and bot_move == "🪨 Piedra") or                                  (chosen_move == "✂️ Tijera" and bot_move == "📄 Papel"):
+                                result = "WIN"
+                            else:
+                                result = "LOSE"
+                            
+                            conn_p = get_db_connection()
+                            cursor_p = conn_p.cursor()
+                            try:
+                                # 1. Cobrar la apuesta inicial: de usuario al admin (99999)
+                                cursor_p.execute("UPDATE users SET balance = balance - ? WHERE wallet_code = ?", (bet_amount, st.session_state.wallet_code))
+                                cursor_p.execute("UPDATE users SET balance = balance + ? WHERE wallet_code = '99999'", (bet_amount,))
+                                cursor_p.execute("""
+                                    INSERT INTO transactions (sender_code, receiver_code, amount)
+                                    VALUES (?, '99999_PPT_BET', ?)
+                                """, (st.session_state.wallet_code, bet_amount))
+
+                                if result == "WIN":
+                                    won_amt = bet_amount * ppt_mult
+                                    # Pagar recompensa completa: del admin (99999) al usuario
+                                    cursor_p.execute("UPDATE users SET balance = balance - ? WHERE wallet_code = '99999'", (won_amt,))
+                                    cursor_p.execute("UPDATE users SET balance = balance + ? WHERE wallet_code = ?", (won_amt, st.session_state.wallet_code))
+                                    
                                     cursor_p.execute("""
                                         INSERT INTO transactions (sender_code, receiver_code, amount)
-                                        VALUES (?, '99999_PPT_BET', ?)
+                                        VALUES ('99999_PPT_REWARD', ?, ?)
+                                    """, (st.session_state.wallet_code, won_amt))
+                                
+                                    st.balloons()
+                                    st.success(f"🏆 <b>¡GANASTE EL DUELO!</b> Tu oponente lanzó <b>{bot_move}</b>. Has vencido con <b>{chosen_move}</b> y te has ganado <b>{format_num(won_amt)} SD</b>.")
+                                elif result == "DRAW":
+                                    # Devolver la apuesta completa: de admin (99999) al usuario
+                                    cursor_p.execute("UPDATE users SET balance = balance - ? WHERE wallet_code = '99999'", (bet_amount,))
+                                    cursor_p.execute("UPDATE users SET balance = balance + ? WHERE wallet_code = ?", (bet_amount, st.session_state.wallet_code))
+                                    
+                                    cursor_p.execute("""
+                                        INSERT INTO transactions (sender_code, receiver_code, amount)
+                                        VALUES ('99999_PPT_DRAW_REFUND', ?, ?)
                                     """, (st.session_state.wallet_code, bet_amount))
-
-                                    if result == "WIN":
-                                        won_amt = bet_amount * ppt_mult
-                                        # Pagar recompensa completa: del admin (99999) al usuario
-                                        cursor_p.execute("UPDATE users SET balance = balance - ? WHERE wallet_code = '99999'", (won_amt,))
-                                        cursor_p.execute("UPDATE users SET balance = balance + ? WHERE wallet_code = ?", (won_amt, st.session_state.wallet_code))
-                                        
-                                        cursor_p.execute("""
-                                            INSERT INTO transactions (sender_code, receiver_code, amount)
-                                            VALUES ('99999_PPT_REWARD', ?, ?)
-                                        """, (st.session_state.wallet_code, won_amt))
                                     
-                                        st.balloons()
-                                        st.success(f"🏆 <b>¡GANASTE EL DUELO!</b> Tu oponente lanzó <b>{bot_move}</b>. Has vencido con <b>{chosen_move}</b> y te has ganado <b>{format_num(won_amt)} SD</b>.")
-                                    elif result == "DRAW":
-                                        # Devolver la apuesta completa: de admin (99999) al usuario
-                                        cursor_p.execute("UPDATE users SET balance = balance - ? WHERE wallet_code = '99999'", (bet_amount,))
-                                        cursor_p.execute("UPDATE users SET balance = balance + ? WHERE wallet_code = ?", (bet_amount, st.session_state.wallet_code))
-                                        
-                                        cursor_p.execute("""
-                                            INSERT INTO transactions (sender_code, receiver_code, amount)
-                                            VALUES ('99999_PPT_DRAW_REFUND', ?, ?)
-                                        """, (st.session_state.wallet_code, bet_amount))
-                                        
-                                        st.info(f"🤝 <b>¡HUBO UN EMPATE!</b> Tu oponente también lanzó <b>{bot_move}</b>. Se te reembolsan tus <b>{format_num(bet_amount)} SD</b> intactos.")
-                                    else: # LOSE
-                                        cursor_p.execute("""
-                                            INSERT INTO transactions (sender_code, receiver_code, amount)
-                                            VALUES (?, '99999_PPT_LOSE', ?)
-                                        """, (st.session_state.wallet_code, bet_amount))
-                                    
-                                        st.error(f"💀 <b>¡HAS SIDO DERROTADO!</b> Tu oponente lanzó <b>{bot_move}</b> y venció a tu <b>{chosen_move}</b>. Perdiste <b>{format_num(bet_amount)} SD</b>.")
-                                    
-                                    conn_p.commit()
-                                    conn_p.close()
-                                    # Esperar exactamente 4 segundos para mostrar letrero de resultado
-                                    time.sleep(4.0)
-                                    st.rerun()
-                                except Exception as e:
-                                    conn_p.rollback()
-                                    conn_p.close()
-                                    st.error(f"Error procesando duelo: {str(e)}")
-
-            # ----------------- JUEGO 3: TRIVIA ALIANZA (Punto 5) -----------------
-            with tab_sub_trivia:
-                st.markdown("#### 🧠 El Desafío de Trivia Alianza")
-                trivia = get_active_trivia()
-            
-                if not trivia:
-                    st.info("No hay trivias activas publicadas por el administrador en este momento. Vuelve más tarde.")
-                else:
-                    st.markdown(clean_html(f"""
-                    <div class="card" style="border-left: 4px solid #3b82f6;">
-                        <h4 style="color:#3b82f6; margin-top:0;">📝 Trivia ID #{trivia['id']}</h4>
-                        <p style="font-size:1.1rem; color:#ffffff; font-weight:bold; margin-bottom:15px;">{trivia['question']}</p>
-                        <p style="font-size:0.85rem; color:#a1a1aa; margin:0;">
-                            🎟️ <b>Costo de Entrada:</b> {format_num(trivia['entry_fee'])} SD | 🎁 <b>Premio de Acierto:</b> {format_num(trivia['prize_sd'])} SD
-                        </p>
-                    </div>
-                    """), unsafe_allow_html=True)
-                
-                    if has_user_answered_trivia(st.session_state.wallet_code, trivia['id']):
-                        st.warning("⚠️ <b>Participación Completada:</b> Ya has respondido a esta pregunta de trivia. Espera a que el administrador publique una nueva pregunta.")
-                    else:
-                        ans_options = {
-                            f"A) {trivia['option_a']}": "A",
-                            f"B) {trivia['option_b']}": "B",
-                            f"C) {trivia['option_c']}": "C"
-                        }
-                        user_ans_label = st.radio("🧠 Selecciona tu respuesta correcta:", list(ans_options.keys()), key=f"trivia_ans_radio_{trivia['id']}")
-                        user_ans_letter = ans_options[user_ans_label]
-                    
-                        if st.button("🧠 Registrar Mi Respuesta", key=f"submit_trivia_btn_{trivia['id']}"):
-                            success_t, msg_t = play_trivia(st.session_state.wallet_code, trivia['id'], user_ans_letter)
-                            if success_t:
-                                if "incorrecta" in msg_t or "😢" in msg_t:
-                                    st.error(msg_t)
-                                else:
-                                    st.balloons()
-                                    st.success(msg_t)
-                                # Letrero visible por exactamente 4 segundos
-                                import time
+                                    st.info(f"🤝 <b>¡HUBO UN EMPATE!</b> Tu oponente también lanzó <b>{bot_move}</b>. Se te reembolsan tus <b>{format_num(bet_amount)} SD</b> intactos.")
+                                else: # LOSE
+                                    cursor_p.execute("""
+                                        INSERT INTO transactions (sender_code, receiver_code, amount)
+                                        VALUES (?, '99999_PPT_LOSE', ?)
+                                    """, (st.session_state.wallet_code, bet_amount))
+                                
+                                    st.error(f"💀 <b>¡HAS SIDO DERROTADO!</b> Tu oponente lanzó <b>{bot_move}</b> y venció a tu <b>{chosen_move}</b>. Perdiste <b>{format_num(bet_amount)} SD</b>.")
+                                
+                                conn_p.commit()
+                                conn_p.close()
+                                # Esperar exactamente 4 segundos para mostrar letrero de resultado
                                 time.sleep(4.0)
                                 st.rerun()
-                            else:
+                            except Exception as e:
+                                conn_p.rollback()
+                                conn_p.close()
+                                st.error(f"Error procesando duelo: {str(e)}")
+
+        # ----------------- JUEGO 3: TRIVIA ALIANZA (Punto 5) -----------------
+        with tab_sub_trivia:
+            st.markdown("#### 🧠 El Desafío de Trivia Alianza")
+            trivia = get_active_trivia()
+        
+            if not trivia:
+                st.info("No hay trivias activas publicadas por el administrador en este momento. Vuelve más tarde.")
+            else:
+                st.markdown(clean_html(f"""
+                <div class="card" style="border-left: 4px solid #3b82f6;">
+                    <h4 style="color:#3b82f6; margin-top:0;">📝 Trivia ID #{trivia['id']}</h4>
+                    <p style="font-size:1.1rem; color:#ffffff; font-weight:bold; margin-bottom:15px;">{trivia['question']}</p>
+                    <p style="font-size:0.85rem; color:#a1a1aa; margin:0;">
+                        🎟️ <b>Costo de Entrada:</b> {format_num(trivia['entry_fee'])} SD | 🎁 <b>Premio de Acierto:</b> {format_num(trivia['prize_sd'])} SD
+                    </p>
+                </div>
+                """), unsafe_allow_html=True)
+            
+                if has_user_answered_trivia(st.session_state.wallet_code, trivia['id']):
+                    st.warning("⚠️ <b>Participación Completada:</b> Ya has respondido a esta pregunta de trivia. Espera a que el administrador publique una nueva pregunta.")
+                else:
+                    ans_options = {
+                        f"A) {trivia['option_a']}": "A",
+                        f"B) {trivia['option_b']}": "B",
+                        f"C) {trivia['option_c']}": "C"
+                    }
+                    user_ans_label = st.radio("🧠 Selecciona tu respuesta correcta:", list(ans_options.keys()), key=f"trivia_ans_radio_{trivia['id']}")
+                    user_ans_letter = ans_options[user_ans_label]
+                
+                    if st.button("🧠 Registrar Mi Respuesta", key=f"submit_trivia_btn_{trivia['id']}"):
+                        success_t, msg_t = play_trivia(st.session_state.wallet_code, trivia['id'], user_ans_letter)
+                        if success_t:
+                            if "incorrecta" in msg_t or "😢" in msg_t:
                                 st.error(msg_t)
-
-            # ----------------- JUEGO 4: PRONÓSTICOS DEPORTIVOS -----------------
-            with tab_sub_bets:
-                st.markdown("#### ⚽ Pronósticos Deportivos Alianza (La Polla)")
-                active_bets = get_active_sports_bets()
-            
-                if not active_bets:
-                    st.info("No hay partidos activos para pronósticos en este momento. ¡Pronto el administrador publicará un gran partido!")
-                else:
-                    st.write("<b>🏟️ Elige un partido activo para ver en vivo o realizar tu pronóstico:</b>", unsafe_allow_html=True)
-                    match_options = {f"⚽ {b['local_team']} vs {b['visitor_team']} (Premio: {format_num(b['prize_sd'])} SD)": b for b in active_bets}
-                    selected_match_disp = st.selectbox("Selecciona el partido:", list(match_options.keys()), key="user_active_match_selectbox")
-                    bet = match_options[selected_match_disp]
-                    
-                    st.markdown(clean_html(f"""
-                    <div class="card" style="border-left: 4px solid #ef4444; background: linear-gradient(135deg, #0d0d11 0%, #200404 100%) !important; padding: 20px;">
-                        <h4 style="color:#ef4444; margin-top:0; text-align:center; font-weight:800; text-transform:uppercase; letter-spacing:0.05em;">⚽ PRONÓSTICOS DEPORTIVOS (LA POLLA ALIANZA)</h4>
-                        
-                        <!-- Panel de Marcador Estilo Marcador de TV -->
-                        <div style="display:flex; align-items:center; justify-content:space-between; margin: 20px 0; background-color:#08080c; border:1px solid #ffffff15; border-radius:12px; padding:15px 25px; box-shadow:inset 0 0 15px rgba(0,0,0,0.6); flex-wrap:wrap; gap:10px;">
-                            <div style="text-align:center; flex:1; min-width:120px;">
-                                <div style="font-size:1.4rem; font-weight:900; color:#ffffff;">{bet['local_team'] if bet['local_team'] else bet['match_name'].split(' vs ')[0] if ' vs ' in bet['match_name'] else bet['match_name']}</div>
-                                <div style="font-size:0.75rem; color:#888899; margin-top:3px; font-weight:bold; letter-spacing:0.05em;">LOCAL</div>
-                            </div>
-                            <div style="text-align:center; padding: 0 20px; border-left:1px solid #ffffff15; border-right:1px solid #ffffff15; min-width:120px; margin:0 auto;">
-                                <div style="font-size:2.2rem; font-weight:950; color:#ffd700; letter-spacing:0.1em; text-shadow:0 0 10px rgba(255,215,0,0.3);">{bet['current_score']}</div>
-                                <div style="font-size:0.85rem; font-weight:bold; color:#10b981; text-transform:uppercase; margin-top:5px; background-color:#10b98115; padding:2px 8px; border-radius:15px; display:inline-block;">⏱️ {bet['match_status']}</div>
-                            </div>
-                            <div style="text-align:center; flex:1; min-width:120px;">
-                                <div style="font-size:1.4rem; font-weight:900; color:#ffffff;">{bet['visitor_team'] if bet['visitor_team'] else bet['match_name'].split(' vs ')[1] if ' vs ' in bet['match_name'] else 'Visitante'}</div>
-                                <div style="font-size:0.75rem; color:#888899; margin-top:3px; font-weight:bold; letter-spacing:0.05em;">VISITANTE</div>
-                            </div>
-                        </div>
-                        
-                        <!-- Detalles de Tiempos y Fechas -->
-                        <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; font-size:0.85rem; color:#a1a1aa; margin-bottom:15px; border-top:1px solid #ffffff15; padding-top:15px;">
-                            <div>⏰ <b>Hora de Inicio:</b> <span style="color:#ffffff;">{bet['match_time']}</span></div>
-                            <div style="text-align:right;">🏁 <b>Finalización Estimada:</b> <span style="color:#ffffff;">{bet['ends_at']}</span></div>
-                        </div>
-                        
-                        <p style="font-size:0.85rem; color:#a1a1aa; margin:0; text-align:center; border-top:1px solid #ffffff15; padding-top:12px;">
-                            🎟️ <b>Costo del Ticket:</b> {format_num(bet['ticket_cost'])} SD | 🏆 <b>Premio de Acierto:</b> {format_num(bet['prize_sd'])} SD
-                        </p>
-                    </div>
-                    """), unsafe_allow_html=True)
-                
-                    user_pred_saved = get_user_prediction(st.session_state.wallet_code, bet['id'])
-                    if user_pred_saved:
-                        st.success(f"🎫 **Ticket Adquirido:** Ya registraste tu pronóstico de este partido: <b>{user_pred_saved}</b>. Una vez finalizado el partido en la vida real, el administrador elegirá el resultado ganador y recibirás tu premio si acertaste.")
-                    else:
-                        st.write("<b>🗳️ Selecciona una opción para apostar y comprar tu ticket directamente:</b>", unsafe_allow_html=True)
-                        col_p1, col_p2, col_p3 = st.columns(3)
-                        with col_p1:
-                            if st.button("🏠 Gana Local", key=f"bet_local_{bet['id']}", use_container_width=True):
-                                success_b, msg_b = buy_sports_prediction(st.session_state.wallet_code, bet['id'], "LOCAL")
-                                if success_b:
-                                    st.balloons()
-                                    st.success(msg_b)
-                                    import time
-                                    time.sleep(4.0)
-                                    st.rerun()
-                                else:
-                                    st.error(msg_b)
-                        with col_p2:
-                            if st.button("🤝 Empate", key=f"bet_draw_{bet['id']}", use_container_width=True):
-                                success_b, msg_b = buy_sports_prediction(st.session_state.wallet_code, bet['id'], "EMPATE")
-                                if success_b:
-                                    st.balloons()
-                                    st.success(msg_b)
-                                    import time
-                                    time.sleep(4.0)
-                                    st.rerun()
-                                else:
-                                    st.error(msg_b)
-                        with col_p3:
-                            if st.button("🚀 Gana Visitante", key=f"bet_visitor_{bet['id']}", use_container_width=True):
-                                success_b, msg_b = buy_sports_prediction(st.session_state.wallet_code, bet['id'], "VISITANTE")
-                                if success_b:
-                                    st.balloons()
-                                    st.success(msg_b)
-                                    import time
-                                    time.sleep(4.0)
-                                    st.rerun()
-                                else:
-                                    st.error(msg_b)
-
-            # ----------------- JUEGO 5: SUBASTA DE CENTAVOS -----------------
-            with tab_sub_auc:
-                st.markdown("#### 🔨 Subasta de Centavos Express (Penny Auctions)")
-                auc = get_active_auction()
-            
-                if not auc:
-                    st.info("No hay subastas de productos activas en este momento.")
-                else:
-                    ends_time = datetime.strptime(auc["ends_at"], "%Y-%m-%d %H:%M:%S")
-                    now_time = datetime.utcnow()
-                    seconds_rem = max(int((ends_time - now_time).total_seconds()), 0)
-                
-                    # Formatear el mejor postor
-                    highest_bidder_disp = auc["highest_bidder"]
-                    if highest_bidder_disp == "99999":
-                        highest_bidder_disp = "Propietario (Admin)"
-                    elif highest_bidder_disp == st.session_state.wallet_code:
-                        highest_bidder_disp = "👑 ¡Tú eres el mejor postor!"
-                    else:
-                        highest_bidder_disp = f"Usuario {highest_bidder_disp}"
-                
-                    st.markdown(clean_html(f"""
-                    <div class="card" style="border-left: 4px solid #ffd700;">
-                        <h4 style="color:#ffd700; margin-top:0;">🔨 Subasta Activa: {auc['item_name']}</h4>
-                        <p style="font-size:0.88rem; color:#e2e8f0; margin-top:2px;">{auc['description']}</p>
-                        <hr style="border-color:#ffd7001a; margin: 10px 0;">
-                        <p style="font-size:1.2rem; color:#10b981; font-weight:bold; margin:3px 0;"><b>Precio actual de compra:</b> {format_num(auc['current_price'])} SD</p>
-                        <p style="font-size:0.9rem; color:#ffffff; margin:3px 0;"><b>Líder de la Subasta:</b> {highest_bidder_disp}</p>
-                        <p style="font-size:0.85rem; color:#a1a1aa; margin:3px 0;"><b>Costo por Puja:</b> {format_num(auc['bid_fee_sd'])} SD | <b>Aumento del precio:</b> +{format_num(auc['bid_increment'])} SD</p>
-                    </div>
-                    """), unsafe_allow_html=True)
-                
-                    if seconds_rem <= 0:
-                        st.warning("⏱️ **Subasta Cerrada:** Se ha agotado el tiempo de puja de este artículo.")
-                        if auc["highest_bidder"] == st.session_state.wallet_code:
-                            st.success("🎉 ¡Ganaste la subasta! Puedes reclamar el PIN de tu premio de inmediato presionando el botón de abajo.")
-                            if st.button("🎁 Reclamar Premio Ganado", key=f"claim_auc_btn_{auc['id']}"):
-                                conn_c = get_db_connection()
-                                cursor_c = conn_c.cursor()
-                                try:
-                                    # Marcar como reclamado
-                                    cursor_c.execute("UPDATE penny_auctions SET status = 'CLAIMED' WHERE id = ?", (auc["id"],))
-                                    conn_c.commit()
-                                    conn_c.close()
-                                
-                                    # Entregar de forma ficticia
-                                    add_notification(st.session_state.wallet_code, f"🎁 <b>¡Premio de Subasta Entregado!</b> Has reclamado con éxito tu artículo: <b>{auc['item_name']}</b>. El administrador te enviará tu código PIN a tus notificaciones pronto.")
-                                    st.balloons()
-                                    st.success("¡Premio reclamado! Revisa tu buzón de notificaciones en los próximos minutos.")
-                                    st.rerun()
-                                except Exception as e:
-                                    conn_c.rollback()
-                                    conn_c.close()
-                                    st.error(str(e))
+                            else:
+                                st.balloons()
+                                st.success(msg_t)
+                            # Letrero visible por exactamente 4 segundos
+                            import time
+                            time.sleep(4.0)
+                            st.rerun()
                         else:
-                            st.info(f"El ganador definitivo de este artículo es el usuario <b>{auc['highest_bidder']}</b>.")
-                    else:
-                        # Mostrar cronómetro
-                        hours_r, remainder_r = divmod(seconds_rem, 3600)
-                        mins_r, secs_r = divmod(remainder_r, 60)
-                        time_str = f"⏳ <b>Tiempo Restante:</b> {hours_r:02d}h {mins_r:02d}m {secs_r:02d}s"
-                        st.markdown(f"<div style='font-size:1.15rem; color:#ff4d4d; font-weight:bold; margin-bottom:12px;'>{time_str}</div>", unsafe_allow_html=True)
+                            st.error(msg_t)
+
+        # ----------------- JUEGO 4: PRONÓSTICOS DEPORTIVOS -----------------
+        with tab_sub_bets:
+            st.markdown("#### ⚽ Pronósticos Deportivos Alianza (La Polla)")
+            active_bets = get_active_sports_bets()
+        
+            if not active_bets:
+                st.info("No hay partidos activos para pronósticos en este momento. ¡Pronto el administrador publicará un gran partido!")
+            else:
+                st.write("<b>🏟️ Elige un partido activo para ver en vivo o realizar tu pronóstico:</b>", unsafe_allow_html=True)
+                match_options = {f"⚽ {b['local_team']} vs {b['visitor_team']} (Premio: {format_num(b['prize_sd'])} SD)": b for b in active_bets}
+                selected_match_disp = st.selectbox("Selecciona el partido:", list(match_options.keys()), key="user_active_match_selectbox")
+                bet = match_options[selected_match_disp]
+                
+                # Conteo regresivo en tiempo real
+                try:
+                    starts_dt = datetime.strptime(bet['match_time'], "%Y-%m-%d %H:%M:%S")
+                    ends_dt = datetime.strptime(bet['ends_at'], "%Y-%m-%d %H:%M:%S")
+                    now_dt = datetime.now()
                     
-                        if st.button(f"🔨 Pujar (+{format_num(auc['bid_increment'])} SD)", key=f"place_bid_btn_{auc['id']}"):
-                            success_p_b, msg_p_b = place_penny_bid(st.session_state.wallet_code, auc["id"])
-                            if success_p_b:
-                                st.success(msg_p_b)
+                    is_started = now_dt >= starts_dt
+                    is_ended = now_dt >= ends_dt
+                    
+                    if is_ended:
+                        countdown_display = "⏱️ Partido Finalizado (Cerrado)"
+                    elif is_started:
+                        countdown_display = "⏱️ Partido En Curso (Apuestas Cerradas)"
+                    else:
+                        diff = ends_dt - now_dt
+                        hours, remainder = divmod(int(diff.total_seconds()), 3600)
+                        minutes, seconds = divmod(remainder, 60)
+                        countdown_display = f"⏳ Cierre de apuestas en: {hours:02d}h {minutes:02d}m {seconds:02d}s"
+                except Exception:
+                    countdown_display = f"⏱️ Inicio: {bet['match_time']} | Cierre: {bet['ends_at']}"
+                
+                st.markdown(clean_html(f"""
+                <div class="card" style="border-left: 4px solid #ef4444; background: linear-gradient(135deg, #0d0d11 0%, #200404 100%) !important; padding: 20px;">
+                    <h4 style="color:#ef4444; margin-top:0; text-align:center; font-weight:800; text-transform:uppercase; letter-spacing:0.05em;">⚽ PRONÓSTICOS DEPORTIVOS (LA POLLA ALIANZA)</h4>
+                    
+                    <!-- Panel de Marcador Estilo TV -->
+                    <div style="display:flex; align-items:center; justify-content:space-between; margin: 20px 0; background-color:#08080c; border:1px solid #ffffff15; border-radius:12px; padding:15px 25px; box-shadow:inset 0 0 15px rgba(0,0,0,0.6); flex-wrap:wrap; gap:10px;">
+                        <div style="text-align:center; flex:1; min-width:120px;">
+                            <div style="font-size:1.4rem; font-weight:900; color:#ffffff;">{bet['local_team'] if bet['local_team'] else bet['match_name'].split(' vs ')[0] if ' vs ' in bet['match_name'] else bet['match_name']}</div>
+                            <div style="font-size:0.75rem; color:#888899; margin-top:3px; font-weight:bold; letter-spacing:0.05em;">LOCAL</div>
+                        </div>
+                        <div style="text-align:center; padding: 0 20px; border-left:1px solid #ffffff15; border-right:1px solid #ffffff15; min-width:120px; margin:0 auto;">
+                            <div style="font-size:2.2rem; font-weight:950; color:#ffd700; letter-spacing:0.1em; text-shadow:0 0 10px rgba(255,215,0,0.3);">{bet['current_score']}</div>
+                            <div style="font-size:0.85rem; font-weight:bold; color:#10b981; text-transform:uppercase; margin-top:5px; background-color:#10b98115; padding:2px 8px; border-radius:15px; display:inline-block;">⏱️ {bet['match_status']}</div>
+                        </div>
+                        <div style="text-align:center; flex:1; min-width:120px;">
+                            <div style="font-size:1.4rem; font-weight:900; color:#ffffff;">{bet['visitor_team'] if bet['visitor_team'] else bet['match_name'].split(' vs ')[1] if ' vs ' in bet['match_name'] else 'Visitante'}</div>
+                            <div style="font-size:0.75rem; color:#888899; margin-top:3px; font-weight:bold; letter-spacing:0.05em;">VISITANTE</div>
+                        </div>
+                    </div>
+                    
+                    <!-- CONTEO REGRESIVO DESTACADO -->
+                    <div style="text-align:center; background-color:#ffd70012; border:1px solid #ffd70030; border-radius:8px; padding:8px; margin-bottom:15px; font-size:1.0rem; font-weight:900; color:#ffd700; letter-spacing:0.03em;">
+                        {countdown_display}
+                    </div>
+                    
+                    <!-- Detalles de Tiempos y Fechas -->
+                    <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; font-size:0.85rem; color:#a1a1aa; margin-bottom:15px; border-top:1px solid #ffffff15; padding-top:15px;">
+                        <div>⏰ <b>Hora de Inicio:</b> <span style="color:#ffffff;">{bet['match_time']}</span></div>
+                        <div style="text-align:right;">🏁 <b>Cierre de Apuestas:</b> <span style="color:#ffffff;">{bet['ends_at']}</span></div>
+                    </div>
+                    
+                    <p style="font-size:0.85rem; color:#a1a1aa; margin:0; text-align:center; border-top:1px solid #ffffff15; padding-top:12px;">
+                        🎟️ <b>Costo del Ticket:</b> {format_num(bet['ticket_cost'])} SD | 🏆 <b>Premio de Acierto:</b> {format_num(bet['prize_sd'])} SD
+                    </p>
+                </div>
+                """ , unsafe_allow_html=True))
+            
+                user_pred_saved = get_user_prediction(st.session_state.wallet_code, bet['id'])
+                
+                try:
+                    starts_dt = datetime.strptime(bet['match_time'], "%Y-%m-%d %H:%M:%S")
+                    ends_dt = datetime.strptime(bet['ends_at'], "%Y-%m-%d %H:%M:%S")
+                    now_dt = datetime.now()
+                    is_started = now_dt >= starts_dt
+                    is_ended = now_dt >= ends_dt
+                except Exception:
+                    is_started = False
+                    is_ended = False
+
+                if is_ended:
+                    st.warning("⏱️ **Apuestas Cerradas:** Este partido ya ha finalizado en el tiempo establecido. Esperando resolución de premios por el administrador.")
+                elif is_started:
+                    st.warning("⏱️ **Apuestas Cerradas:** Este partido ya ha comenzado en tiempo real. No se permiten más pronósticos.")
+                elif user_pred_saved:
+                    st.success(f"🎫 **Ticket Adquirido:** Ya registraste tu pronóstico de este partido: <b>{user_pred_saved}</b>. Una vez finalizado el partido en la vida real, el administrador elegirá el resultado ganador y recibirás tu premio si acertaste.")
+                else:
+                    st.write("<b>🗳️ Selecciona una opción para apostar y comprar tu ticket directamente:</b>", unsafe_allow_html=True)
+                    col_p1, col_p2, col_p3 = st.columns(3)
+                    with col_p1:
+                        if st.button("🏠 Gana Local", key=f"bet_local_{bet['id']}", use_container_width=True):
+                            success_b, msg_b = buy_sports_prediction(st.session_state.wallet_code, bet['id'], "LOCAL")
+                            if success_b:
+                                st.balloons()
+                                st.success(msg_b)
                                 import time
                                 time.sleep(4.0)
                                 st.rerun()
                             else:
-                                st.error(msg_p_b)
-                    
-                    # Mostrar tabla de participantes y pujas recientes
-                    st.markdown("---")
-                    st.write("<b>📋 Participantes y Ofertas Recientes en esta Subasta:</b>", unsafe_allow_html=True)
-                    try:
-                        conn_bids = get_db_connection()
-                        bids_df = pd.read_sql_query("""
-                            SELECT t.timestamp as 'Fecha/Hora', u.fullname as 'Participante', u.wallet_code as 'ID Billetera', t.amount as 'Puja (SD)'
-                            FROM transactions t
-                            LEFT JOIN users u ON t.sender_code = u.wallet_code
-                            WHERE t.receiver_code = '99999_AUCTION_BID_FEE' OR t.receiver_code = 'SYSTEM_AUCTION_BID_FEE'
-                            ORDER BY t.timestamp DESC LIMIT 15
-                        """, conn_bids)
-                        conn_bids.close()
-                        
-                        if len(bids_df) == 0:
-                            st.info("No hay pujas registradas todavía. ¡Sé el primero en pujar por este artículo!")
-                        else:
-                            st.dataframe(bids_df, use_container_width=True)
-                    except Exception as e_bids:
-                        st.write("Cargando tabla de pujas...")
-
-            # ----------------- JUEGO 6: RASPA Y GANA DIGITAL (Scratch Cards) -----------------
-            with tab_sub_scratch:
-                st.markdown("#### 🎟️ Tarjeta Raspa y Gana Digital (Scratch Cards)")
-                _, scratch_cost = get_game_setting('scratch_cost', default_num=0.5)
-                s_prizes_str, _ = get_game_setting('scratch_prizes', default_val='0.0,0.2,0.5,1.0,3.0,10.0')
-                s_probs_str, _ = get_game_setting('scratch_prob', default_val='50,25,15,7,2,1')
-            
-                s_prizes = [float(p) for p in s_prizes_str.split(',') if p]
-                s_probs = [int(p) for p in s_probs_str.split(',') if p]
-            
-                st.write(f"Adquiere una tarjeta virtual raspa y gana por solo **{format_num(scratch_cost)} SD**. Revela 3 casillas iguales para ganar hasta **{format_num(max(s_prizes))} SD**.")
-            
-                if "scratch_game_res" not in st.session_state:
-                    st.session_state.scratch_game_res = None
-
-                col_sc_l, col_sc_r = st.columns([1, 1])
-                with col_sc_l:
-                    if st.session_state.scratch_game_res:
-                        res_data = st.session_state.scratch_game_res
-                        border_clr = "#10b981" if res_data["won_amt"] > 0 else "#ef4444"
-                        st.markdown(clean_html(f"""
-                        <div class="card" style="border: 2px solid {border_clr}; text-align:center; background: linear-gradient(135deg, #0d0d11 0%, #15151e 100%) !important;">
-                            <div style="font-size: 1.5rem; color:#ffd700; font-weight:800;">ALIANZA SCRATCH</div>
-                            <p style="font-size:0.82rem; color:#a1a1aa; margin:5px 0;">¡Tarjeta raspada!</p>
-                            <div style="background-color:#050507; border: 2px solid {border_clr}; padding:15px; margin-top:10px; font-size:2.2rem; letter-spacing:0.15em; font-weight:bold; border-radius:6px; color:#ffffff;">{res_data["emojis"]}</div>
-                        </div>
-                        """), unsafe_allow_html=True)
-                    else:
-                        st.markdown(clean_html(f"""
-                        <div class="card" style="border-top: 3px solid #10b981; text-align:center;">
-                            <div style="font-size: 1.5rem; color:#10b981; font-weight:800;">ALIANZA SCRATCH</div>
-                            <p style="font-size:0.82rem; color:#a1a1aa; margin:5px 0;">¿Tendrás las tres coronas ganadoras de la suerte?</p>
-                            <div style="background-color:#0d0d11; border: 2px dashed #ffd70044; padding:15px; margin-top:10px; font-size:2.0rem; letter-spacing:0.3em; font-weight:bold; border-radius:6px; color:#5f5f6e;">❓ ❓ ❓</div>
-                        </div>
-                        """), unsafe_allow_html=True)
-                with col_sc_r:
-                    if st.button("🎟️ Comprar y Raspar Tarjeta", key="play_scratch_btn"):
-                        if balance_db < scratch_cost:
-                            st.error(f"⚠️ Saldo insuficiente para comprar la tarjeta. Cuesta {format_num(scratch_cost)} SD.")
-                        else:
-                            with st.spinner("⏳ Comprando tarjeta y revelando casillas protectoras..."):
+                                st.error(msg_b)
+                    with col_p2:
+                        if st.button("🤝 Empate", key=f"bet_draw_{bet['id']}", use_container_width=True):
+                            success_b, msg_b = buy_sports_prediction(st.session_state.wallet_code, bet['id'], "EMPATE")
+                            if success_b:
+                                st.balloons()
+                                st.success(msg_b)
                                 import time
-                                time.sleep(2.0)
+                                time.sleep(4.0)
+                                st.rerun()
+                            else:
+                                st.error(msg_b)
+                    with col_p3:
+                        if st.button("🚀 Gana Visitante", key=f"bet_visitor_{bet['id']}", use_container_width=True):
+                            success_b, msg_b = buy_sports_prediction(st.session_state.wallet_code, bet['id'], "VISITANTE")
+                            if success_b:
+                                st.balloons()
+                                st.success(msg_b)
+                                import time
+                                time.sleep(4.0)
+                                st.rerun()
+                            else:
+                                st.error(msg_b)
+
+        # ----------------- JUEGO 5: SUBASTA DE CENTAVOS -----------------
+        with tab_sub_auc:
+            st.markdown("#### 🔨 Subasta de Centavos Express (Penny Auctions)")
+            auc = get_active_auction()
+        
+            if not auc:
+                st.info("No hay subastas de productos activas en este momento.")
+            else:
+                ends_time = datetime.strptime(auc["ends_at"], "%Y-%m-%d %H:%M:%S")
+                now_time = datetime.utcnow()
+                seconds_rem = max(int((ends_time - now_time).total_seconds()), 0)
+            
+                # Formatear el mejor postor
+                highest_bidder_disp = auc["highest_bidder"]
+                if highest_bidder_disp == "99999":
+                    highest_bidder_disp = "Propietario (Admin)"
+                elif highest_bidder_disp == st.session_state.wallet_code:
+                    highest_bidder_disp = "👑 ¡Tú eres el mejor postor!"
+                else:
+                    highest_bidder_disp = f"Usuario {highest_bidder_disp}"
+            
+                st.markdown(clean_html(f"""
+                <div class="card" style="border-left: 4px solid #ffd700;">
+                    <h4 style="color:#ffd700; margin-top:0;">🔨 Subasta Activa: {auc['item_name']}</h4>
+                    <p style="font-size:0.88rem; color:#e2e8f0; margin-top:2px;">{auc['description']}</p>
+                    <hr style="border-color:#ffd7001a; margin: 10px 0;">
+                    <p style="font-size:1.2rem; color:#10b981; font-weight:bold; margin:3px 0;"><b>Precio actual de compra:</b> {format_num(auc['current_price'])} SD</p>
+                    <p style="font-size:0.9rem; color:#ffffff; margin:3px 0;"><b>Líder de la Subasta:</b> {highest_bidder_disp}</p>
+                    <p style="font-size:0.85rem; color:#a1a1aa; margin:3px 0;"><b>Costo por Puja:</b> {format_num(auc['bid_fee_sd'])} SD | <b>Aumento del precio:</b> +{format_num(auc['bid_increment'])} SD</p>
+                </div>
+                """), unsafe_allow_html=True)
+            
+                if seconds_rem <= 0:
+                    st.warning("⏱️ **Subasta Cerrada:** Se ha agotado el tiempo de puja de este artículo.")
+                    if auc["highest_bidder"] == st.session_state.wallet_code:
+                        st.success("🎉 ¡Ganaste la subasta! Puedes reclamar el PIN de tu premio de inmediato presionando el botón de abajo.")
+                        if st.button("🎁 Reclamar Premio Ganado", key=f"claim_auc_btn_{auc['id']}"):
+                            conn_c = get_db_connection()
+                            cursor_c = conn_c.cursor()
+                            try:
+                                # Marcar como reclamado
+                                cursor_c.execute("UPDATE penny_auctions SET status = 'CLAIMED' WHERE id = ?", (auc["id"],))
+                                conn_c.commit()
+                                conn_c.close()
                             
-                                import random
-                                s_choices = list(range(len(s_prizes)))
-                                s_chosen_idx = random.choices(s_choices, weights=s_probs, k=1)[0]
-                                won_amt_s = s_prizes[s_chosen_idx]
+                                # Entregar de forma ficticia
+                                add_notification(st.session_state.wallet_code, f"🎁 <b>¡Premio de Subasta Entregado!</b> Has reclamado con éxito tu artículo: <b>{auc['item_name']}</b>. El administrador te enviará tu código PIN a tus notificaciones pronto.")
+                                st.balloons()
+                                st.success("¡Premio reclamado! Revisa tu buzón de notificaciones en los próximos minutos.")
+                                st.rerun()
+                            except Exception as e:
+                                conn_c.rollback()
+                                conn_c.close()
+                                st.error(str(e))
+                    else:
+                        st.info(f"El ganador definitivo de este artículo es el usuario <b>{auc['highest_bidder']}</b>.")
+                else:
+                    # Mostrar cronómetro
+                    hours_r, remainder_r = divmod(seconds_rem, 3600)
+                    mins_r, secs_r = divmod(remainder_r, 60)
+                    time_str = f"⏳ <b>Tiempo Restante:</b> {hours_r:02d}h {mins_r:02d}m {secs_r:02d}s"
+                    st.markdown(f"<div style='font-size:1.15rem; color:#ff4d4d; font-weight:bold; margin-bottom:12px;'>{time_str}</div>", unsafe_allow_html=True)
+                
+                    if st.button(f"🔨 Pujar (+{format_num(auc['bid_increment'])} SD)", key=f"place_bid_btn_{auc['id']}"):
+                        success_p_b, msg_p_b = place_penny_bid(st.session_state.wallet_code, auc["id"])
+                        if success_p_b:
+                            st.success(msg_p_b)
+                            import time
+                            time.sleep(4.0)
+                            st.rerun()
+                        else:
+                            st.error(msg_p_b)
+                
+                # Mostrar tabla de participantes y pujas recientes
+                st.markdown("---")
+                st.write("<b>📋 Participantes y Ofertas Recientes en esta Subasta:</b>", unsafe_allow_html=True)
+                try:
+                    conn_bids = get_db_connection()
+                    bids_df = pd.read_sql_query("""
+                        SELECT t.timestamp as 'Fecha/Hora', u.fullname as 'Participante', u.wallet_code as 'ID Billetera', t.amount as 'Puja (SD)'
+                        FROM transactions t
+                        LEFT JOIN users u ON t.sender_code = u.wallet_code
+                        WHERE t.receiver_code = '99999_AUCTION_BID_FEE' OR t.receiver_code = 'SYSTEM_AUCTION_BID_FEE'
+                        ORDER BY t.timestamp DESC LIMIT 15
+                    """, conn_bids)
+                    conn_bids.close()
+                    
+                    if len(bids_df) == 0:
+                        st.info("No hay pujas registradas todavía. ¡Sé el primero en pujar por este artículo!")
+                    else:
+                        st.dataframe(bids_df, use_container_width=True)
+                except Exception as e_bids:
+                    st.write("Cargando tabla de pujas...")
+
+        # ----------------- JUEGO 6: RASPA Y GANA DIGITAL (Scratch Cards) -----------------
+        with tab_sub_scratch:
+            st.markdown("#### 🎟️ Tarjeta Raspa y Gana Digital (Scratch Cards)")
+            _, scratch_cost = get_game_setting('scratch_cost', default_num=0.5)
+            s_prizes_str, _ = get_game_setting('scratch_prizes', default_val='0.0,0.2,0.5,1.0,3.0,10.0')
+            s_probs_str, _ = get_game_setting('scratch_prob', default_val='50,25,15,7,2,1')
+        
+            s_prizes = [float(p) for p in s_prizes_str.split(',') if p]
+            s_probs = [int(p) for p in s_probs_str.split(',') if p]
+        
+            st.write(f"Adquiere una tarjeta virtual raspa y gana por solo **{format_num(scratch_cost)} SD**. Revela 3 casillas iguales para ganar hasta **{format_num(max(s_prizes))} SD**.")
+        
+            if "scratch_game_res" not in st.session_state:
+                st.session_state.scratch_game_res = None
+
+            col_sc_l, col_sc_r = st.columns([1, 1])
+            with col_sc_l:
+                if st.session_state.scratch_game_res:
+                    res_data = st.session_state.scratch_game_res
+                    border_clr = "#10b981" if res_data["won_amt"] > 0 else "#ef4444"
+                    st.markdown(clean_html(f"""
+                    <div class="card" style="border: 2px solid {border_clr}; text-align:center; background: linear-gradient(135deg, #0d0d11 0%, #15151e 100%) !important;">
+                        <div style="font-size: 1.5rem; color:#ffd700; font-weight:800;">ALIANZA SCRATCH</div>
+                        <p style="font-size:0.82rem; color:#a1a1aa; margin:5px 0;">¡Tarjeta raspada!</p>
+                        <div style="background-color:#050507; border: 2px solid {border_clr}; padding:15px; margin-top:10px; font-size:2.2rem; letter-spacing:0.15em; font-weight:bold; border-radius:6px; color:#ffffff;">{res_data["emojis"]}</div>
+                    </div>
+                    """), unsafe_allow_html=True)
+                else:
+                    st.markdown(clean_html(f"""
+                    <div class="card" style="border-top: 3px solid #10b981; text-align:center;">
+                        <div style="font-size: 1.5rem; color:#10b981; font-weight:800;">ALIANZA SCRATCH</div>
+                        <p style="font-size:0.82rem; color:#a1a1aa; margin:5px 0;">¿Tendrás las tres coronas ganadoras de la suerte?</p>
+                        <div style="background-color:#0d0d11; border: 2px dashed #ffd70044; padding:15px; margin-top:10px; font-size:2.0rem; letter-spacing:0.3em; font-weight:bold; border-radius:6px; color:#5f5f6e;">❓ ❓ ❓</div>
+                    </div>
+                    """), unsafe_allow_html=True)
+            with col_sc_r:
+                if st.button("🎟️ Comprar y Raspar Tarjeta", key="play_scratch_btn"):
+                    if balance_db < scratch_cost:
+                        st.error(f"⚠️ Saldo insuficiente para comprar la tarjeta. Cuesta {format_num(scratch_cost)} SD.")
+                    else:
+                        with st.spinner("⏳ Comprando tarjeta y revelando casillas protectoras..."):
+                            import time
+                            time.sleep(2.0)
+                        
+                            import random
+                            s_choices = list(range(len(s_prizes)))
+                            s_chosen_idx = random.choices(s_choices, weights=s_probs, k=1)[0]
+                            won_amt_s = s_prizes[s_chosen_idx]
+                        
+                            # Generar combinación visual de emojis
+                            winning_emojis = ["👑", "⭐", "💎", "🍎", "🔥", "🍀"]
+                            if won_amt_s > 0:
+                                matching_emoji = random.choice(winning_emojis)
+                                display_emojis = f"{matching_emoji} {matching_emoji} {matching_emoji}"
+                            else:
+                                shuffled = list(winning_emojis)
+                                random.shuffle(shuffled)
+                                display_emojis = f"{shuffled[0]} {shuffled[1]} {shuffled[2]}"
                             
-                                # Generar combinación visual de emojis
-                                winning_emojis = ["👑", "⭐", "💎", "🍎", "🔥", "🍀"]
-                                if won_amt_s > 0:
-                                    matching_emoji = random.choice(winning_emojis)
-                                    display_emojis = f"{matching_emoji} {matching_emoji} {matching_emoji}"
-                                else:
-                                    shuffled = list(winning_emojis)
-                                    random.shuffle(shuffled)
-                                    display_emojis = f"{shuffled[0]} {shuffled[1]} {shuffled[2]}"
+                            conn_sc = get_db_connection()
+                            cursor_sc = conn_sc.cursor()
+                            try:
+                                # Cobrar el raspadito: de usuario a admin (99999)
+                                cursor_sc.execute("UPDATE users SET balance = balance - ? WHERE wallet_code = ?", (scratch_cost, st.session_state.wallet_code))
+                                cursor_sc.execute("UPDATE users SET balance = balance + ? WHERE wallet_code = '99999'", (scratch_cost,))
                                 
-                                conn_sc = get_db_connection()
-                                cursor_sc = conn_sc.cursor()
-                                try:
-                                    # Cobrar el raspadito: de usuario a admin (99999)
-                                    cursor_sc.execute("UPDATE users SET balance = balance - ? WHERE wallet_code = ?", (scratch_cost, st.session_state.wallet_code))
-                                    cursor_sc.execute("UPDATE users SET balance = balance + ? WHERE wallet_code = '99999'", (scratch_cost,))
+                                cursor_sc.execute("""
+                                    INSERT INTO transactions (sender_code, receiver_code, amount)
+                                    VALUES (?, '99999_SCRATCH_FEE', ?)
+                                """, (st.session_state.wallet_code, scratch_cost))
+                            
+                                if won_amt_s > 0:
+                                    # Pagar premio: del admin (99999) al usuario
+                                    cursor_sc.execute("UPDATE users SET balance = balance - ? WHERE wallet_code = '99999'", (won_amt_s,))
+                                    cursor_sc.execute("UPDATE users SET balance = balance + ? WHERE wallet_code = ?", (won_amt_s, st.session_state.wallet_code))
                                     
                                     cursor_sc.execute("""
                                         INSERT INTO transactions (sender_code, receiver_code, amount)
-                                        VALUES (?, '99999_SCRATCH_FEE', ?)
-                                    """, (st.session_state.wallet_code, scratch_cost))
+                                        VALUES ('99999_SCRATCH_REWARD', ?, ?)
+                                    """, (st.session_state.wallet_code, won_amt_s))
                                 
-                                    if won_amt_s > 0:
-                                        # Pagar premio: del admin (99999) al usuario
-                                        cursor_sc.execute("UPDATE users SET balance = balance - ? WHERE wallet_code = '99999'", (won_amt_s,))
-                                        cursor_sc.execute("UPDATE users SET balance = balance + ? WHERE wallet_code = ?", (won_amt_s, st.session_state.wallet_code))
-                                        
-                                        cursor_sc.execute("""
-                                            INSERT INTO transactions (sender_code, receiver_code, amount)
-                                            VALUES ('99999_SCRATCH_REWARD', ?, ?)
-                                        """, (st.session_state.wallet_code, won_amt_s))
-                                    
-                                    conn_sc.commit()
-                                    conn_sc.close()
+                                conn_sc.commit()
+                                conn_sc.close()
+                            
+                                st.session_state.scratch_game_res = {
+                                    "emojis": display_emojis,
+                                    "won_amt": won_amt_s
+                                }
                                 
-                                    st.session_state.scratch_game_res = {
-                                        "emojis": display_emojis,
-                                        "won_amt": won_amt_s
-                                    }
-                                    
-                                    if won_amt_s > scratch_cost:
-                                        st.balloons()
-                                        st.success(f"🎉 ¡Felicidades! Tres figuras idénticas coinciden. Has ganado un premio de <b>{format_num(won_amt_s)} SD</b>.")
-                                    elif won_amt_s > 0:
-                                        st.success(f"👍 ¡Buen intento! Obtuviste un premio menor de consolación de <b>{format_num(won_amt_s)} SD</b>.")
-                                    else:
-                                        st.warning("😢 No coincidieron las figuras. ¡Compra otra tarjeta y cambia tu suerte en el próximo raspadito!")
-                                    
-                                    # Esperar exactamente 4 segundos para que se vea el letrero
-                                    time.sleep(4.0)
-                                    st.rerun()
-                                except Exception as e:
-                                    conn_sc.rollback()
-                                    conn_sc.close()
-                                    st.error(f"Error procesando raspa y gana: {str(e)}")
-
-            # ----------------- JUEGO 7: ALERTA DIARIA O CONSEJO CRIPTO -----------------
-            with tab_sub_tip:
-                st.markdown("#### 🔮 Alerta Diaria o Consejo Millonario Cripto")
-                _, tip_cost = get_game_setting('crypto_tip_cost', default_num=0.2)
-                tip_text, _ = get_game_setting('crypto_tip', default_val='🔑 Consejo del día no configurado todavía.')
-            
-                # Verificar si el usuario ya lo desbloqueó hoy
-                conn_u = get_db_connection()
-                cursor_u = conn_u.cursor()
-                cursor_u.execute("SELECT id FROM user_unlocked_tips WHERE user_code = ? AND DATE(unlocked_at) = DATE('now')", (st.session_state.wallet_code,))
-                is_unlocked = bool(cursor_u.fetchone())
-                conn_u.close()
-            
-                if is_unlocked:
-                    st.markdown(clean_html(f"""
-                    <div class="card" style="border: 2px solid #ffd700; background: linear-gradient(135deg, #0d0d11 0%, #201a00 100%) !important; padding: 22px; text-align:center;">
-                        <h3 style="color:#ffd700; margin-top:0; font-family:serif;">🔮 CONSEJO MILLONARIO DESBLOQUEADO</h3>
-                        <p style="font-size:1.15rem; color:#ffffff; font-style:italic; line-height:1.6rem; font-family:serif; max-width:80%; margin: 15px auto;">
-                            "{tip_text}"
-                        </p>
-                        <span style="font-size:0.75rem; color:#10b981; font-weight:bold; letter-spacing:0.1em;">🔓 ACCESO COMPLETO DIARIO</span>
-                    </div>
-                    """), unsafe_allow_html=True)
-                else:
-                    st.markdown(clean_html(f"""
-                    <div class="card" style="border: 1px dashed rgba(255,215,0,0.3); padding: 30px; text-align:center; background-color:#050507; filter: blur(0.3px);">
-                        <div style="font-size: 3.0rem; margin-bottom:12px; filter: grayscale(1);">🔒🔮🔒</div>
-                        <h4 style="color:#a1a1aa; margin-top:0;">Consejo Millonario Oculto</h4>
-                        <p style="font-size:0.9rem; color:#888899; max-width:60%; margin: 10px auto; line-height:1.3rem;">
-                            El administrador ha publicado un consejo financiero exclusivo para hoy. Desbloquéalo para acelerar tus ganancias de Alianza.
-                        </p>
-                        <span style="font-size:1.1rem; color:#ffd700; font-weight:800; display:block; margin: 15px 0;">Costo de Desbloqueo: {format_num(tip_cost)} SD</span>
-                    </div>
-                    """), unsafe_allow_html=True)
-                
-                    if st.button(f"🔓 Desbloquear Consejo con {format_num(tip_cost)} SD", key="unlock_tip_btn"):
-                        if balance_db < tip_cost:
-                            st.error(f"⚠️ Saldo insuficiente para desbloquear el consejo. Cuesta {format_num(tip_cost)} SD.")
-                        else:
-                            conn_un = get_db_connection()
-                            cursor_un = conn_un.cursor()
-                            try:
-                                # Cobrar coste
-                                cursor_un.execute("UPDATE users SET balance = balance - ? WHERE wallet_code = ?", (tip_cost, st.session_state.wallet_code))
-                                cursor_un.execute("UPDATE users SET balance = balance + ? WHERE wallet_code = '99999'", (tip_cost,))
-                            
-                                cursor_un.execute("""
-                                    INSERT INTO transactions (sender_code, receiver_code, amount)
-                                    VALUES (?, 'SYSTEM_TIP_UNLOCK', ?)
-                                """, (st.session_state.wallet_code, tip_cost))
-                            
-                                # Registrar desbloqueo
-                                cursor_un.execute("INSERT INTO user_unlocked_tips (user_code, tip_id) VALUES (?, 'daily_tip')", (st.session_state.wallet_code,))
-                            
-                                conn_un.commit()
-                                conn_un.close()
-                            
-                                st.balloons()
-                                st.success("¡Consejo desbloqueado con éxito!")
+                                if won_amt_s > scratch_cost:
+                                    st.balloons()
+                                    st.success(f"🎉 ¡Felicidades! Tres figuras idénticas coinciden. Has ganado un premio de <b>{format_num(won_amt_s)} SD</b>.")
+                                elif won_amt_s > 0:
+                                    st.success(f"👍 ¡Buen intento! Obtuviste un premio menor de consolación de <b>{format_num(won_amt_s)} SD</b>.")
+                                else:
+                                    st.warning("😢 No coincidieron las figuras. ¡Compra otra tarjeta y cambia tu suerte en el próximo raspadito!")
+                                
+                                # Esperar exactamente 4 segundos para que se vea el letrero
+                                time.sleep(4.0)
                                 st.rerun()
                             except Exception as e:
-                                conn_un.rollback()
-                                conn_un.close()
-                                st.error(str(e))
+                                conn_sc.rollback()
+                                conn_sc.close()
+                                st.error(f"Error procesando raspa y gana: {str(e)}")
 
-    # --- SECCIÓN: COURIER Y CONDUCTORES (MENSAJERÍA Alianza) ---
+        # ----------------- JUEGO 7: ALERTA DIARIA O CONSEJO CRIPTO -----------------
+        with tab_sub_tip:
+            st.markdown("#### 🔮 Alerta Diaria o Consejo Millonario Cripto")
+            _, tip_cost = get_game_setting('crypto_tip_cost', default_num=0.2)
+            tip_text, _ = get_game_setting('crypto_tip', default_val='🔑 Consejo del día no configurado todavía.')
+        
+            # Verificar si el usuario ya lo desbloqueó hoy
+            conn_u = get_db_connection()
+            cursor_u = conn_u.cursor()
+            cursor_u.execute("SELECT id FROM user_unlocked_tips WHERE user_code = ? AND DATE(unlocked_at) = DATE('now')", (st.session_state.wallet_code,))
+            is_unlocked = bool(cursor_u.fetchone())
+            conn_u.close()
+        
+            if is_unlocked:
+                st.markdown(clean_html(f"""
+                <div class="card" style="border: 2px solid #ffd700; background: linear-gradient(135deg, #0d0d11 0%, #201a00 100%) !important; padding: 22px; text-align:center;">
+                    <h3 style="color:#ffd700; margin-top:0; font-family:serif;">🔮 CONSEJO MILLONARIO DESBLOQUEADO</h3>
+                    <p style="font-size:1.15rem; color:#ffffff; font-style:italic; line-height:1.6rem; font-family:serif; max-width:80%; margin: 15px auto;">
+                        "{tip_text}"
+                    </p>
+                    <span style="font-size:0.75rem; color:#10b981; font-weight:bold; letter-spacing:0.1em;">🔓 ACCESO COMPLETO DIARIO</span>
+                </div>
+                """), unsafe_allow_html=True)
+            else:
+                st.markdown(clean_html(f"""
+                <div class="card" style="border: 1px dashed rgba(255,215,0,0.3); padding: 30px; text-align:center; background-color:#050507; filter: blur(0.3px);">
+                    <div style="font-size: 3.0rem; margin-bottom:12px; filter: grayscale(1);">🔒🔮🔒</div>
+                    <h4 style="color:#a1a1aa; margin-top:0;">Consejo Millonario Oculto</h4>
+                    <p style="font-size:0.9rem; color:#888899; max-width:60%; margin: 10px auto; line-height:1.3rem;">
+                        El administrador ha publicado un consejo financiero exclusivo para hoy. Desbloquéalo para acelerar tus ganancias de Alianza.
+                    </p>
+                    <span style="font-size:1.1rem; color:#ffd700; font-weight:800; display:block; margin: 15px 0;">Costo de Desbloqueo: {format_num(tip_cost)} SD</span>
+                </div>
+                """), unsafe_allow_html=True)
+            
+                if st.button(f"🔓 Desbloquear Consejo con {format_num(tip_cost)} SD", key="unlock_tip_btn"):
+                    if balance_db < tip_cost:
+                        st.error(f"⚠️ Saldo insuficiente para desbloquear el consejo. Cuesta {format_num(tip_cost)} SD.")
+                    else:
+                        conn_un = get_db_connection()
+                        cursor_un = conn_un.cursor()
+                        try:
+                            # Cobrar coste
+                            cursor_un.execute("UPDATE users SET balance = balance - ? WHERE wallet_code = ?", (tip_cost, st.session_state.wallet_code))
+                            cursor_un.execute("UPDATE users SET balance = balance + ? WHERE wallet_code = '99999'", (tip_cost,))
+                        
+                            cursor_un.execute("""
+                                INSERT INTO transactions (sender_code, receiver_code, amount)
+                                VALUES (?, 'SYSTEM_TIP_UNLOCK', ?)
+                            """, (st.session_state.wallet_code, tip_cost))
+                        
+                            # Registrar desbloqueo
+                            cursor_un.execute("INSERT INTO user_unlocked_tips (user_code, tip_id) VALUES (?, 'daily_tip')", (st.session_state.wallet_code,))
+                        
+                            conn_un.commit()
+                            conn_un.close()
+                        
+                            st.balloons()
+                            st.success("¡Consejo desbloqueado con éxito!")
+                            st.rerun()
+                        except Exception as e:
+                            conn_un.rollback()
+                            conn_un.close()
+                            st.error(str(e))
+
+
+        # --- SECCIÓN: COURIER Y CONDUCTORES (MENSAJERÍA Alianza) ---
     elif choice == "🚚 Mensajería Alianza":
         st.markdown("<h1 class='golden-title'>🚚 Servicios de Mensajería y Móviles</h1>", unsafe_allow_html=True)
         st.write("Gestiona los pagos de envíos de encomiendas de forma directa y cancela tus cuotas semanales de móviles con descuentos especiales en tokens SD.")
@@ -5321,15 +5408,16 @@ else:
         pending_withdraws_count = len(get_pending_withdrawals())
         pending_store_count = len(get_pending_store_purchases())
         
-        tab_mint, tab_claims, tab_withdraws, tab_store, tab_referrals, tab_fees, tab_messenger, tab_sports_control, tab_broadcast, tab_settings = st.tabs([
+        tab_mint, tab_claims, tab_withdraws, tab_store, tab_store_catalog, tab_games_control, tab_referrals, tab_fees, tab_messenger, tab_broadcast, tab_settings_token = st.tabs([
             "💸 Emisión de Monedas", 
             f"📥 Comprobantes por Confirmar ({pending_claims_count})", 
             f"💰 Solicitudes de Retiro ({pending_withdraws_count})",
             f"🛍️ Pedidos de Tienda ({pending_store_count})",
+            "🛍️ Catálogo de Tienda",
+            "🎮 Control de Juegos",
             f"👥 Comisiones de Referidos ({pending_rewards_count})",
             "📊 Comisiones de Plataforma",
             "🚚 Control de Mensajería",
-            "🏆 Control de La Polla",
             "📢 Enviar Comunicado",
             "⚙️ Configuración del Token y Nequi"
         ])
@@ -5734,114 +5822,6 @@ else:
                 st.dataframe(df_all_m_display, use_container_width=True)
 
 
-        with tab_sports_control:
-            st.subheader("⚽ Control de Juegos de La Polla (Pronósticos Deportivos)")
-            st.write("Crea nuevos partidos de la polla y gestiona los encuentros activos al instante de forma totalmente abierta y visible.")
-            
-            # Form 1: CREAR PARTIDO (Siempre visible, no en expander)
-            st.markdown("""
-            <div style="background-color: #0d0d11; border-left: 5px solid #10b981; padding: 12px 18px; border-radius: 8px; margin-bottom: 15px;">
-                <h4 style="color: #10b981; margin:0;">➕ CREAR Y PUBLICAR NUEVO PARTIDO</h4>
-                <p style="font-size:0.85rem; color:#a1a1aa; margin:2px 0;">Completa los campos para abrir un nuevo encuentro en la polla de los usuarios. Puedes tener múltiples partidos activos al mismo tiempo.</p>
-            </div>
-            """, unsafe_allow_html=True)
-            
-            with st.form("admin_new_match_form_main"):
-                col_n1, col_n2 = st.columns(2)
-                with col_n1:
-                    m_local = st.text_input("Equipo Local:", value="Colombia", key="new_match_local")
-                    m_visitor = st.text_input("Equipo Visitante:", value="Argentina", key="new_match_visitor")
-                    m_cost = st.number_input("Costo del Ticket (SD):", value=1.0, min_value=0.0, format="%.2f", key="new_match_cost")
-                with col_n2:
-                    m_time = st.text_input("Hora de Inicio (ej. Hoy 18:00):", value="Hoy 18:00", key="new_match_time")
-                    m_ends_at = st.text_input("Hora de Finalización (ej. Hoy 20:00):", value="Hoy 20:00", key="new_match_ends_at")
-                    m_prize = st.number_input("Premio por Acierto (SD):", value=3.0, min_value=0.0001, format="%.2f", key="new_match_prize")
-                    
-                submit_new_match = st.form_submit_button("⚽ Publicar Nuevo Partido en La Polla")
-                if submit_new_match:
-                    conn_m_up = get_db_connection()
-                    cursor_m_up = conn_m_up.cursor()
-                    cursor_m_up.execute("""
-                        INSERT INTO sports_bets (match_name, ticket_cost, prize_sd, status, local_team, visitor_team, match_time, ends_at, current_score, match_status)
-                        VALUES (?, ?, ?, 'ACTIVE', ?, ?, ?, ?, '0 - 0', 'No iniciado')
-                    """, (f"{m_local} vs {m_visitor}", m_cost, m_prize, m_local, m_visitor, m_time, m_ends_at))
-                    conn_m_up.commit()
-                    conn_m_up.close()
-                    st.success(f"✅ ¡Partido '{m_local} vs {m_visitor}' publicado con éxito! Ahora tus usuarios pueden verlo y apostar de inmediato.")
-                    st.rerun()
-            
-            st.markdown("---")
-            
-            # Form 2: GESTIONAR PARTIDOS ACTIVOS
-            st.markdown("""
-            <div style="background-color: #0d0d11; border-left: 5px solid #ffd700; padding: 12px 18px; border-radius: 8px; margin-bottom: 15px;">
-                <h4 style="color: #ffd700; margin:0;">✏️ GESTIONAR PARTIDOS EN CURSO</h4>
-                <p style="font-size:0.85rem; color:#a1a1aa; margin:2px 0;">Selecciona cualquier partido activo para editar su marcador, cambiar estados, resolver los premios para los ganadores o anular el juego de inmediato.</p>
-            </div>
-            """, unsafe_allow_html=True)
-            
-            active_bets = get_active_sports_bets()
-            curr_bet = None
-            if active_bets:
-                match_opts_admin = {f"⚽ {b['local_team']} vs {b['visitor_team']} (ID: #{b['id']})": b for b in active_bets}
-                selected_match_label_admin = st.selectbox("🎯 Selecciona el partido activo que deseas configurar:", list(match_opts_admin.keys()), key="main_admin_active_match_selectbox")
-                curr_bet = match_opts_admin[selected_match_label_admin]
-                
-                col_gm1, col_gm2 = st.columns(2)
-                with col_gm1:
-                    st.write("<b>✏️ Editar Detalles del Partido:</b>", unsafe_allow_html=True)
-                    with st.form("main_admin_edit_match_form"):
-                        e_local = st.text_input("Equipo Local:", value=curr_bet["local_team"])
-                        e_visitor = st.text_input("Equipo Visitante:", value=curr_bet["visitor_team"])
-                        e_time = st.text_input("Hora de Inicio:", value=curr_bet["match_time"])
-                        e_ends_at = st.text_input("Hora de Finalización:", value=curr_bet["ends_at"])
-                        e_score = st.text_input("Marcador Actual:", value=curr_bet["current_score"])
-                        e_status = st.text_input("Estado / Minuto:", value=curr_bet["match_status"])
-                        e_cost = st.number_input("Costo del Ticket (SD):", value=float(curr_bet["ticket_cost"]), min_value=0.0, format="%.2f")
-                        e_prize = st.number_input("Premio por Acierto (SD):", value=float(curr_bet["prize_sd"]), min_value=0.0001, format="%.2f")
-                        submit_edit_match = st.form_submit_button("💾 Guardar Cambios")
-                        
-                        if submit_edit_match:
-                            conn_m_edit = get_db_connection()
-                            cursor_m_edit = conn_m_edit.cursor()
-                            cursor_m_edit.execute("""
-                                UPDATE sports_bets 
-                                SET ticket_cost = ?, prize_sd = ?, local_team = ?, visitor_team = ?, 
-                                    match_name = ?, match_time = ?, ends_at = ?, current_score = ?, match_status = ? 
-                                WHERE id = ?
-                            """, (e_cost, e_prize, e_local, e_visitor, f"{e_local} vs {e_visitor}", e_time, e_ends_at, e_score, e_status, curr_bet["id"]))
-                            conn_m_edit.commit()
-                            conn_m_edit.close()
-                            st.success("✅ ¡Los datos del partido se han actualizado con éxito!")
-                            st.rerun()
-                with col_gm2:
-                    st.write("<b>🏁 Declarar Resultado y Pagar Ganadores:</b>", unsafe_allow_html=True)
-                    st.warning(f"Partido a Resolver: {curr_bet['match_name']} (ID: #{curr_bet['id']})")
-                    with st.form("main_admin_resolve_match_form"):
-                        winner_choice = st.selectbox("Selecciona la Opción Ganadora:", ["LOCAL", "EMPATE", "VISITANTE"])
-                        submit_resolve = st.form_submit_button("🏁 Confirmar Resultado y Pagar Premios")
-                        if submit_resolve:
-                            success_res, msg_res = resolve_sports_bet(curr_bet["id"], winner_choice)
-                            if success_res:
-                                st.success(msg_res)
-                                st.balloons()
-                                st.rerun()
-                            else:
-                                st.error(msg_res)
-                    st.write("---")
-                    st.write("<b>❌ Anular Partido (Reembolsa el costo del ticket a todos los usuarios):</b>", unsafe_allow_html=True)
-                    with st.form("main_admin_annul_match_form"):
-                        submit_annul = st.form_submit_button("❌ Anular Partido y Devolver SD")
-                        if submit_annul:
-                            success_an, msg_an = annul_sports_bet(curr_bet["id"])
-                            if success_an:
-                                st.success(msg_an)
-                                st.rerun()
-                            else:
-                                st.error(msg_an)
-            else:
-                st.info("ℹ️ No hay ningún partido activo en este momento. ¡Usa el formulario de arriba para publicar uno nuevo!")
-
         with tab_broadcast:
             st.subheader("📢 Enviar Comunicado Global a todos los Usuarios")
             st.write("Escribe un mensaje que desees difundir de forma masiva a todos los usuarios registrados en sus bandejas de entrada (Notificaciones).")
@@ -5863,72 +5843,220 @@ else:
                         st.balloons()
                         st.rerun()
 
-        with tab_settings:
-            st.subheader("⚙️ Configuración y Edición General de la Aplicación")
-            st.write("Como Propietario de Alianza, tienes control total para editar precios, productos de la tienda, crear/resolver juegos, trivias, subastas y configurar los parámetros del token en tiempo real.")
+        with tab_store_catalog:
+            st.subheader("🛍️ Editar Precios e Información de la Tienda")
+            st.write("Modifica el nombre, descripción, costo en tokens (SD) y tarifa de envío de alimentos de cualquier artículo de la tienda Alianza.")
             
-            # --- SUB-TABS DENTRO DEL PANEL DE CONFIGURACIÓN ---
-            tab_adm_store, tab_adm_trivia, tab_adm_sports, tab_adm_penny, tab_adm_games, tab_adm_token = st.tabs([
-                "🛍️ Editar Tienda (Alimentos/Pines)",
-                "🧠 Control Trivia",
-                "⚽ Control Pronósticos",
-                "🔨 Control Subastas",
-                "🎡 Configuración de Juegos",
-                "🪙 Parámetros Token y Nequi"
+            conn_items = get_db_connection()
+            # Cargar todos los artículos incluyendo delivery_fee_sd
+            try:
+                store_items_list = pd.read_sql_query("SELECT id, name, description, price_sd, item_type, delivery_fee_sd FROM store_items", conn_items)
+            except Exception:
+                store_items_list = pd.read_sql_query("SELECT id, name, description, price_sd, item_type, 0.0 as delivery_fee_sd FROM store_items", conn_items)
+            conn_items.close()
+            
+            for idx_i, item_row in store_items_list.iterrows():
+                i_id = item_row['id']
+                i_name = item_row['name']
+                i_type = item_row['item_type']
+                i_price = float(item_row['price_sd'])
+                i_desc = item_row['description']
+                i_deliv = float(item_row['delivery_fee_sd']) if item_row['delivery_fee_sd'] is not None else 0.0
+                
+                # Labels according to type
+                type_labels = {
+                    'MEMBERSHIP': "🏆 Membresía VIP Alianza",
+                    'GIFT_CARD': "🎁 Tarjeta de Regalo / Pin",
+                    'FOOD': "🍔 Alimento o Bebida Express",
+                    'CARRIER_RECHARGE': "📱 Recarga de Datos / Minutos"
+                }
+                type_label = type_labels.get(i_type, "🛒 Artículo General")
+                
+                with st.expander(f"✏️ Editar: {i_name} ({type_label})"):
+                    with st.form(f"edit_store_item_form_v2_{i_id}"):
+                        edit_name = st.text_input("Nombre del Artículo", value=i_name)
+                        edit_desc = st.text_area("Descripción", value=i_desc, height=80)
+                        edit_price = st.number_input("Costo del Artículo (SD)", value=i_price, min_value=0.0001, format="%.4f")
+                        
+                        # Conditionally show delivery fee if food
+                        edit_delivery = 0.0
+                        if i_type == 'FOOD':
+                            edit_delivery = st.number_input("Costo de Envío / Domicilio (SD)", value=i_deliv, min_value=0.0, format="%.2f")
+                            
+                        submit_item_edit = st.form_submit_button(f"Guardar Cambios de {i_name}")
+                        
+                        if submit_item_edit:
+                            if not edit_name.strip() or not edit_desc.strip():
+                                st.error("⚠️ El nombre y la descripción no pueden estar vacíos.")
+                            else:
+                                update_store_item_price(i_id, edit_price, edit_name, edit_desc, edit_delivery)
+                                st.success(f"✅ ¡Se han guardado los cambios para '{edit_name}' con éxito!")
+                                st.rerun()
+
+        # 2. CONTROL TRIVIA ALIANZA
+
+        with tab_games_control:
+            st.subheader("🎮 Control de Juegos Alianza (La Polla, Trivia y Sorteos)")
+            st.write("Administra todos los juegos activos de la plataforma, crea partidos, configura preguntas, premios y probabilidades en vivo.")
+            
+            tab_adm_sports, tab_adm_trivia, tab_adm_penny, tab_adm_games = st.tabs([
+                "⚽ La Polla (Pronósticos)",
+                "🧠 Trivia Alianza",
+                "🔨 Subasta de Centavos",
+                "🎡 Ajustes de Ruleta, PPT y Raspa"
             ])
             
-            # 1. EDITAR TIENDA (Pines, Alimentos, Recargas)
-            with tab_adm_store:
-                st.subheader("🛍️ Editar Precios e Información de la Tienda")
-                st.write("Modifica el nombre, descripción, costo en tokens (SD) y tarifa de envío de alimentos de cualquier artículo de la tienda Alianza.")
-                
-                conn_items = get_db_connection()
-                # Cargar todos los artículos incluyendo delivery_fee_sd
-                try:
-                    store_items_list = pd.read_sql_query("SELECT id, name, description, price_sd, item_type, delivery_fee_sd FROM store_items", conn_items)
-                except Exception:
-                    store_items_list = pd.read_sql_query("SELECT id, name, description, price_sd, item_type, 0.0 as delivery_fee_sd FROM store_items", conn_items)
-                conn_items.close()
-                
-                for idx_i, item_row in store_items_list.iterrows():
-                    i_id = item_row['id']
-                    i_name = item_row['name']
-                    i_type = item_row['item_type']
-                    i_price = float(item_row['price_sd'])
-                    i_desc = item_row['description']
-                    i_deliv = float(item_row['delivery_fee_sd']) if item_row['delivery_fee_sd'] is not None else 0.0
+            with tab_adm_sports:
+                st.subheader("⚽ Control de Juegos de La Polla (Pronósticos Deportivos)")
+                st.write("Crea nuevos partidos de la polla y gestiona los encuentros del historial al instante de forma totalmente abierta y visible.")
+            
+                # Form 1: CREAR PARTIDO (Siempre visible, no en expander)
+                st.markdown("""
+                <div style="background-color: #0d0d11; border-left: 5px solid #10b981; padding: 12px 18px; border-radius: 8px; margin-bottom: 15px;">
+                    <h4 style="color: #10b981; margin:0;">➕ CREAR Y PUBLICAR NUEVO PARTIDO</h4>
+                    <p style="font-size:0.85rem; color:#a1a1aa; margin:2px 0;">Completa los campos para abrir un nuevo encuentro en la polla de los usuarios. Puedes tener múltiples partidos activos al mismo tiempo.</p>
+                </div>
+                """, unsafe_allow_html=True)
+            
+                with st.form("admin_new_match_form_main"):
+                    col_n1, col_n2 = st.columns(2)
+                    with col_n1:
+                        m_local = st.text_input("Equipo Local:", value="Colombia", key="new_match_local")
+                        m_visitor = st.text_input("Equipo Visitante:", value="Argentina", key="new_match_visitor")
+                        m_cost = st.number_input("Costo del Ticket (SD):", value=1.0, min_value=0.0, format="%.2f", key="new_match_cost")
+                        m_prize = st.number_input("Premio por Acierto (SD):", value=3.0, min_value=0.0001, format="%.2f", key="new_match_prize")
+                    with col_n2:
+                        st.write("<b>🕒 Horario de Inicio:</b>", unsafe_allow_html=True)
+                        m_date = st.date_input("Fecha de Inicio:", value=datetime.now().date(), key="new_match_date")
+                        m_hour = st.time_input("Hora de Inicio:", value=datetime.now().time(), key="new_match_hour")
                     
-                    # Labels according to type
-                    type_labels = {
-                        'MEMBERSHIP': "🏆 Membresía VIP Alianza",
-                        'GIFT_CARD': "🎁 Tarjeta de Regalo / Pin",
-                        'FOOD': "🍔 Alimento o Bebida Express",
-                        'CARRIER_RECHARGE': "📱 Recarga de Datos / Minutos"
-                    }
-                    type_label = type_labels.get(i_type, "🛒 Artículo General")
+                        st.write("<b>🏁 Horario de Finalización (Cierre de apuestas):</b>", unsafe_allow_html=True)
+                        m_end_date = st.date_input("Fecha de Finalización:", value=datetime.now().date(), key="new_match_end_date")
+                        m_end_hour = st.time_input("Hora de Finalización:", value=(datetime.now() + timedelta(hours=2)).time(), key="new_match_end_hour")
                     
-                    with st.expander(f"✏️ Editar: {i_name} ({type_label})"):
-                        with st.form(f"edit_store_item_form_v2_{i_id}"):
-                            edit_name = st.text_input("Nombre del Artículo", value=i_name)
-                            edit_desc = st.text_area("Descripción", value=i_desc, height=80)
-                            edit_price = st.number_input("Costo del Artículo (SD)", value=i_price, min_value=0.0001, format="%.4f")
+                    submit_new_match = st.form_submit_button("⚽ Publicar Nuevo Partido en La Polla")
+                    if submit_new_match:
+                        match_start_str = datetime.combine(m_date, m_hour).strftime("%Y-%m-%d %H:%M:%S")
+                        match_end_str = datetime.combine(m_end_date, m_end_hour).strftime("%Y-%m-%d %H:%M:%S")
+                        conn_m_up = get_db_connection()
+                        cursor_m_up = conn_m_up.cursor()
+                        cursor_m_up.execute("""
+                            INSERT INTO sports_bets (match_name, ticket_cost, prize_sd, status, local_team, visitor_team, match_time, ends_at, current_score, match_status)
+                            VALUES (?, ?, ?, 'ACTIVE', ?, ?, ?, ?, '0 - 0', 'No iniciado')
+                        """, (f"{m_local} vs {m_visitor}", m_cost, m_prize, m_local, m_visitor, match_start_str, match_end_str))
+                        conn_m_up.commit()
+                        conn_m_up.close()
+                        st.success(f"✅ ¡Partido '{m_local} vs {m_visitor}' publicado con éxito! Ahora tus usuarios pueden verlo y apostar de inmediato.")
+                        st.rerun()
+            
+                st.markdown("---")
+            
+                # Form 2: GESTIONAR PARTIDOS
+                st.markdown("""
+                <div style="background-color: #0d0d11; border-left: 5px solid #ffd700; padding: 12px 18px; border-radius: 8px; margin-bottom: 15px;">
+                    <h4 style="color: #ffd700; margin:0;">✏️ GESTIONAR PARTIDOS EN CURSO</h4>
+                    <p style="font-size:0.85rem; color:#a1a1aa; margin:2px 0;">Selecciona cualquier partido activo para editar su marcador, cambiar estados, resolver los premios para los ganadores, anular el juego o eliminarlo del sistema definitivamente.</p>
+                </div>
+                """, unsafe_allow_html=True)
+            
+                all_bets = get_all_sports_bets()
+                curr_bet = None
+                if all_bets:
+                    match_opts_admin = {f"⚽ {b['local_team']} vs {b['visitor_team']} (ID: #{b['id']}) [{b['status']}]": b for b in all_bets}
+                    selected_match_label_admin = st.selectbox("🎯 Selecciona el partido que deseas configurar, anular, eliminar o resolver:", list(match_opts_admin.keys()), key="main_admin_active_match_selectbox")
+                    curr_bet = match_opts_admin[selected_match_label_admin]
+                
+                    col_gm1, col_gm2 = st.columns(2)
+                    with col_gm1:
+                        st.write("<b>✏️ Editar Detalles del Partido:</b>", unsafe_allow_html=True)
+                        try:
+                            parsed_start = datetime.strptime(curr_bet["match_time"], "%Y-%m-%d %H:%M:%S")
+                        except Exception:
+                            parsed_start = datetime.now()
+                        try:
+                            parsed_end = datetime.strptime(curr_bet["ends_at"], "%Y-%m-%d %H:%M:%S")
+                        except Exception:
+                            parsed_end = datetime.now() + timedelta(hours=2)
+                        
+                        with st.form("main_admin_edit_match_form"):
+                            e_local = st.text_input("Equipo Local:", value=curr_bet["local_team"])
+                            e_visitor = st.text_input("Equipo Visitante:", value=curr_bet["visitor_team"])
+                        
+                            st.write("<b>🕒 Horario de Inicio:</b>", unsafe_allow_html=True)
+                            ed1, et1 = st.columns(2)
+                            with ed1:
+                                e_date = st.date_input("Nueva Fecha de Inicio:", value=parsed_start.date(), key=f"edit_m_date_{curr_bet['id']}")
+                            with et1:
+                                e_hour = st.time_input("Nueva Hora de Inicio:", value=parsed_start.time(), key=f"edit_m_hour_{curr_bet['id']}")
                             
-                            # Conditionally show delivery fee if food
-                            edit_delivery = 0.0
-                            if i_type == 'FOOD':
-                                edit_delivery = st.number_input("Costo de Envío / Domicilio (SD)", value=i_deliv, min_value=0.0, format="%.2f")
-                                
-                            submit_item_edit = st.form_submit_button(f"Guardar Cambios de {i_name}")
+                            st.write("<b>🏁 Horario de Finalización:</b>", unsafe_allow_html=True)
+                            ed2, et2 = st.columns(2)
+                            with ed2:
+                                e_end_date = st.date_input("Nueva Fecha de Finalización:", value=parsed_end.date(), key=f"edit_m_end_date_{curr_bet['id']}")
+                            with et2:
+                                e_end_hour = st.time_input("Nueva Hora de Finalización:", value=parsed_end.time(), key=f"edit_m_end_hour_{curr_bet['id']}")
                             
-                            if submit_item_edit:
-                                if not edit_name.strip() or not edit_desc.strip():
-                                    st.error("⚠️ El nombre y la descripción no pueden estar vacíos.")
-                                else:
-                                    update_store_item_price(i_id, edit_price, edit_name, edit_desc, edit_delivery)
-                                    st.success(f"✅ ¡Se han guardado los cambios para '{edit_name}' con éxito!")
+                            e_score = st.text_input("Marcador Actual:", value=curr_bet["current_score"])
+                            e_status = st.text_input("Estado / Minuto del Partido:", value=curr_bet["match_status"])
+                            e_cost = st.number_input("Costo del Ticket (SD):", value=float(curr_bet["ticket_cost"]), min_value=0.0, format="%.2f")
+                            e_prize = st.number_input("Premio por Acierto (SD):", value=float(curr_bet["prize_sd"]), min_value=0.0001, format="%.2f")
+                            submit_edit_match = st.form_submit_button("💾 Guardar Cambios")
+                        
+                            if submit_edit_match:
+                                edit_start_str = datetime.combine(e_date, e_hour).strftime("%Y-%m-%d %H:%M:%S")
+                                edit_end_str = datetime.combine(e_end_date, e_end_hour).strftime("%Y-%m-%d %H:%M:%S")
+                                conn_m_edit = get_db_connection()
+                                cursor_m_edit = conn_m_edit.cursor()
+                                cursor_m_edit.execute("""
+                                    UPDATE sports_bets 
+                                    SET ticket_cost = ?, prize_sd = ?, local_team = ?, visitor_team = ?, 
+                                        match_name = ?, match_time = ?, ends_at = ?, current_score = ?, match_status = ? 
+                                    WHERE id = ?
+                                """, (e_cost, e_prize, e_local, e_visitor, f"{e_local} vs {e_visitor}", edit_start_str, edit_end_str, e_score, e_status, curr_bet["id"]))
+                                conn_m_edit.commit()
+                                conn_m_edit.close()
+                                st.success("✅ ¡Los datos del partido se han actualizado con éxito!")
+                                st.rerun()
+                    with col_gm2:
+                        st.write("<b>🏁 Declarar Resultado y Pagar Ganadores:</b>", unsafe_allow_html=True)
+                        st.warning(f"Partido a Resolver: {curr_bet['match_name']} (ID: #{curr_bet['id']})")
+                        with st.form("main_admin_resolve_match_form"):
+                            winner_choice = st.selectbox("Selecciona la Opción Ganadora:", ["LOCAL", "EMPATE", "VISITANTE"])
+                            submit_resolve = st.form_submit_button("🏁 Confirmar Resultado y Pagar Premios")
+                            if submit_resolve:
+                                success_res, msg_res = resolve_sports_bet(curr_bet["id"], winner_choice)
+                                if success_res:
+                                    st.success(msg_res)
+                                    st.balloons()
                                     st.rerun()
+                                else:
+                                    st.error(msg_res)
+                        st.write("---")
+                        st.write("<b>❌ Anular Partido (Reembolsa el costo del ticket a todos los usuarios):</b>", unsafe_allow_html=True)
+                        with st.form("main_admin_annul_match_form"):
+                            submit_annul = st.form_submit_button("❌ Anular Partido y Devolver SD")
+                            if submit_annul:
+                                success_an, msg_an = annul_sports_bet(curr_bet["id"])
+                                if success_an:
+                                    st.success(msg_an)
+                                    st.rerun()
+                                else:
+                                    st.error(msg_an)
+                        st.write("---")
+                        st.write("<b>🗑️ Eliminar Partido Definitivamente (Se borra de la Base de Datos):</b>", unsafe_allow_html=True)
+                        with st.form("main_admin_delete_match_form"):
+                            submit_delete = st.form_submit_button("🗑️ Eliminar Partido de la Base de Datos")
+                            if submit_delete:
+                                success_dl, msg_dl = delete_sports_bet(curr_bet["id"])
+                                if success_dl:
+                                    st.success(msg_dl)
+                                    st.rerun()
+                                else:
+                                    st.error(msg_dl)
+                else:
+                    st.info("ℹ️ No hay ningún partido activo en este momento. ¡Usa el formulario de arriba para publicar uno nuevo!")
 
-            # 2. CONTROL TRIVIA ALIANZA
+            
             with tab_adm_trivia:
                 st.subheader("🧠 Publicar y Configurar Trivia Alianza")
                 st.write("Modifica la trivia activa para que los usuarios respondan y ganen tokens.")
@@ -5962,12 +6090,8 @@ else:
                         st.success("✅ ¡Se ha publicado la nueva trivia activa con éxito! Se han reiniciado las participaciones para esta nueva pregunta.")
                         st.rerun()
 
-            # 3. CONTROL PRONÓSTICOS DEPORTIVOS (LA POLLA)
-            with tab_adm_sports:
-                st.subheader("⚽ Administrar Pronósticos Deportivos (La Polla)")
-                st.info("ℹ️ El panel completo para publicar nuevos partidos, editar marcadores, anular o pagar premios ha sido trasladado a una pestaña principal dedicada: **🏆 Control de La Polla** en tu menú de administrador superior para un acceso rápido y 100% visible sin expanders.")
-                
-            # 4. CONTROL SUBASTAS DE CENTAVOS
+
+            
             with tab_adm_penny:
                 st.subheader("🔨 Configurar Subasta de Centavos")
                 st.write("Configura el artículo en subasta, precio inicial, incrementos, costo de puja y el tiempo de expiración.")
@@ -6003,6 +6127,8 @@ else:
                         st.rerun()
 
             # 5. CONFIGURACIÓN DE JUEGOS (Ruleta, PPT, Raspa, Consejos)
+
+            
             with tab_adm_games:
                 st.subheader("🎡 Configuración Técnica de Ruleta, Duelos y Consejos")
                 st.write("Modifica el valor de las apuestas, multiplicadores de ganancias y probabilidades de los minijuegos interactivos de la Tienda.")
@@ -6068,27 +6194,29 @@ else:
                             st.rerun()
 
             # 6. CONFIGURACIÓN DEL TOKEN Y NEQUI (Muelle Original)
-            with tab_adm_token:
-                st.subheader("⚙️ Parámetros Cripto y Cuenta Madre")
-                
-                is_admin_user = (st.session_state.username == 'admin' or st.session_state.wallet_code == '99999')
-                if not is_admin_user:
-                    st.warning("⚠️ Solamente el usuario administrador principal (@admin) puede editar la configuración global de la plataforma y el número de Nequi oficial.")
-                    st.info(f"<b>Nequi Oficial del Administrador para Recibir Pagos:</b> {token['nequi_number']}")
-                else:
-                    st.write("Desde aquí personalizas las características de tu propia criptomoneda y el canal de pago de forma global.")
-                    with st.form("settings_form"):
-                        new_name = st.text_input("Nombre de la Criptomoneda", value=token['name'])
-                        new_symbol = st.text_input("Símbolo del Token", value=token['symbol'], max_chars=10)
-                        new_contract = st.text_input("Dirección de Contrato (Smart Contract)", value=token['contract'])
-                        new_price = st.number_input("Valor en USD de cada Token (USD)", value=token['price_usd'], min_value=0.000001, format="%.6f", step=0.01)
-                        new_nequi = st.text_input("Número de Cuenta NEQUI Oficial para Recibir Pagos", value=token['nequi_number'])
-                        submit_s = st.form_submit_button("Guardar Configuración Técnica")
-                        
-                        if submit_s:
-                            if not (new_name and new_symbol and new_contract and new_nequi):
-                                st.error("Todos los campos de configuración son obligatorios.")
-                            else:
-                                update_token_settings(new_name, new_symbol, new_contract, new_price, new_nequi)
-                                st.success("¡Configuración general guardada con éxito!")
-                                st.rerun()
+
+
+        with tab_settings_token:
+            st.subheader("⚙️ Parámetros Cripto y Cuenta Madre")
+            
+            is_admin_user = (st.session_state.username == 'admin' or st.session_state.wallet_code == '99999')
+            if not is_admin_user:
+                st.warning("⚠️ Solamente el usuario administrador principal (@admin) puede editar la configuración global de la plataforma y el número de Nequi oficial.")
+                st.info(f"<b>Nequi Oficial del Administrador para Recibir Pagos:</b> {token['nequi_number']}")
+            else:
+                st.write("Desde aquí personalizas las características de tu propia criptomoneda y el canal de pago de forma global.")
+                with st.form("settings_form"):
+                    new_name = st.text_input("Nombre de la Criptomoneda", value=token['name'])
+                    new_symbol = st.text_input("Símbolo del Token", value=token['symbol'], max_chars=10)
+                    new_contract = st.text_input("Dirección de Contrato (Smart Contract)", value=token['contract'])
+                    new_price = st.number_input("Valor en USD de cada Token (USD)", value=token['price_usd'], min_value=0.000001, format="%.6f", step=0.01)
+                    new_nequi = st.text_input("Número de Cuenta NEQUI Oficial para Recibir Pagos", value=token['nequi_number'])
+                    submit_s = st.form_submit_button("Guardar Configuración Técnica")
+                    
+                    if submit_s:
+                        if not (new_name and new_symbol and new_contract and new_nequi):
+                            st.error("Todos los campos de configuración son obligatorios.")
+                        else:
+                            update_token_settings(new_name, new_symbol, new_contract, new_price, new_nequi)
+                            st.success("¡Configuración general guardada con éxito!")
+                            st.rerun()
