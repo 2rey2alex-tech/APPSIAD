@@ -30,7 +30,7 @@ def clean_html(html_str):
 
 # Configuración de página de Streamlit
 st.set_page_config(
-    page_title="Alianza CryptoWallet v63",
+    page_title="Alianza CryptoWallet v64",
     page_icon="💼",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -2884,7 +2884,7 @@ st.markdown(f"""
 
 if not st.session_state.logged_in:
     st.sidebar.title("🔐 Alianza CryptoWallet")
-    st.sidebar.markdown("<div style='background-color: #1e293b; padding: 6px 12px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 15px; text-align: center;'><span style='color: #ffd700; font-size: 0.85rem; font-weight: bold;'>🚀 Versión de la App: v63</span></div>", unsafe_allow_html=True)
+    st.sidebar.markdown("<div style='background-color: #1e293b; padding: 6px 12px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 15px; text-align: center;'><span style='color: #ffd700; font-size: 0.85rem; font-weight: bold;'>🚀 Versión de la App: v64</span></div>", unsafe_allow_html=True)
     menu = st.sidebar.selectbox("Seleccione una opción", ["Iniciar Sesión", "Registrarse"])
     
     if menu == "Iniciar Sesión":
@@ -2952,7 +2952,7 @@ if not st.session_state.logged_in:
 else:
     # Sidebar de usuario conectado con toques dorados
     st.sidebar.markdown(f"<h2 class='golden-title'>👋 {st.session_state.fullname}</h2>", unsafe_allow_html=True)
-    st.sidebar.markdown("<div style='background-color: #1e293b; padding: 6px 12px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 15px; text-align: center;'><span style='color: #ffd700; font-size: 0.85rem; font-weight: bold;'>🚀 Versión de la App: v63</span></div>", unsafe_allow_html=True)
+    st.sidebar.markdown("<div style='background-color: #1e293b; padding: 6px 12px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 15px; text-align: center;'><span style='color: #ffd700; font-size: 0.85rem; font-weight: bold;'>🚀 Versión de la App: v64</span></div>", unsafe_allow_html=True)
     st.sidebar.markdown(f"**Billetera ID (Código):** `{st.session_state.wallet_code}`")
     
     # Obtener el número de notificaciones pendientes
@@ -4280,23 +4280,41 @@ else:
                     if user_pred_saved:
                         st.success(f"🎫 **Ticket Adquirido:** Ya registraste tu pronóstico de este partido: <b>{user_pred_saved}</b>. Una vez finalizado el partido en la vida real, el administrador elegirá el resultado ganador y recibirás tu premio si acertaste.")
                     else:
-                        st.write("<b>Escribe tu pronóstico para el partido:</b>", unsafe_allow_html=True)
-                        pred_opts = {
-                            "🏠 Ganador Local": "LOCAL",
-                            "🤝 Empate": "EMPATE",
-                            "🚀 Ganador Visitante": "VISITANTE"
-                        }
-                        user_pred_label = st.radio("Selecciona una opción:", list(pred_opts.keys()), key=f"sports_bet_radio_{bet['id']}", horizontal=True)
-                        user_pred_val = pred_opts[user_pred_label]
-                    
-                        if st.button("🎫 Comprar Ticket y Registrar Pronóstico", key=f"buy_ticket_bet_{bet['id']}"):
-                            success_b, msg_b = buy_sports_prediction(st.session_state.wallet_code, bet['id'], user_pred_val)
-                            if success_b:
-                                st.balloons()
-                                st.success(msg_b)
-                                st.rerun()
-                            else:
-                                st.error(msg_b)
+                        st.write("<b>🗳️ Selecciona una opción para apostar y comprar tu ticket directamente:</b>", unsafe_allow_html=True)
+                        col_p1, col_p2, col_p3 = st.columns(3)
+                        with col_p1:
+                            if st.button("🏠 Gana Local", key=f"bet_local_{bet['id']}", use_container_width=True):
+                                success_b, msg_b = buy_sports_prediction(st.session_state.wallet_code, bet['id'], "LOCAL")
+                                if success_b:
+                                    st.balloons()
+                                    st.success(msg_b)
+                                    import time
+                                    time.sleep(4.0)
+                                    st.rerun()
+                                else:
+                                    st.error(msg_b)
+                        with col_p2:
+                            if st.button("🤝 Empate", key=f"bet_draw_{bet['id']}", use_container_width=True):
+                                success_b, msg_b = buy_sports_prediction(st.session_state.wallet_code, bet['id'], "EMPATE")
+                                if success_b:
+                                    st.balloons()
+                                    st.success(msg_b)
+                                    import time
+                                    time.sleep(4.0)
+                                    st.rerun()
+                                else:
+                                    st.error(msg_b)
+                        with col_p3:
+                            if st.button("🚀 Gana Visitante", key=f"bet_visitor_{bet['id']}", use_container_width=True):
+                                success_b, msg_b = buy_sports_prediction(st.session_state.wallet_code, bet['id'], "VISITANTE")
+                                if success_b:
+                                    st.balloons()
+                                    st.success(msg_b)
+                                    import time
+                                    time.sleep(4.0)
+                                    st.rerun()
+                                else:
+                                    st.error(msg_b)
 
             # ----------------- JUEGO 5: SUBASTA DE CENTAVOS -----------------
             with tab_sub_auc:
