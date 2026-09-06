@@ -65,6 +65,17 @@ def init_db():
             referred_by TEXT
         )
     """)
+    
+    # Tabla de reclamaciones de staking / minería
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS staking_claims (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_code TEXT,
+            amount_sd REAL,
+            amount_cop REAL,
+            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
     # Tabla de transacciones
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS transactions (
@@ -183,6 +194,31 @@ def init_db():
         pass
 
     try:
+        cursor.execute("ALTER TABLE users ADD COLUMN staked_amount REAL DEFAULT 0.0")
+    except sqlite3.OperationalError:
+        pass
+
+    try:
+        cursor.execute("ALTER TABLE users ADD COLUMN last_claim_time TEXT DEFAULT NULL")
+    except sqlite3.OperationalError:
+        pass
+
+    try:
+        cursor.execute("ALTER TABLE users ADD COLUMN total_earned_staking REAL DEFAULT 0.0")
+    except sqlite3.OperationalError:
+        pass
+
+    try:
+        cursor.execute("ALTER TABLE users ADD COLUMN staking_plan TEXT DEFAULT NULL")
+    except sqlite3.OperationalError:
+        pass
+
+    try:
+        cursor.execute("ALTER TABLE users ADD COLUMN staking_start_amount REAL DEFAULT 0.0")
+    except sqlite3.OperationalError:
+        pass
+
+    try:
         cursor.execute("ALTER TABLE users ADD COLUMN referred_by TEXT")
     except sqlite3.OperationalError:
         pass
@@ -260,7 +296,7 @@ def init_db():
         if cursor.fetchone()[0] == 0:
             cursor.execute("""
                 INSERT INTO store_items (name, description, price_sd, item_type) VALUES 
-                ('Membresía VIP Alianza', '🔒 Reduce comisión de retiros a Nequi al 1% y aumenta tu bono de referidos al 25% de por vida.', 50.0, 'MEMBERSHIP'),
+                ('Membresía VIP Alianza', '🔒 Disfruta de ganancias de referidos aumentadas al 25% de por vida.', 50.0, 'MEMBERSHIP'),
                 ('Netflix Premium (1 Mes)', '🎬 Pin digital para canjear 1 mes de Netflix Premium en cualquier cuenta.', 30.0, 'GIFT_CARD'),
                 ('Spotify Premium (1 Mes)', '🎵 Código oficial de 1 mes de Spotify Premium para tu cuenta.', 15.0, 'GIFT_CARD'),
                 ('Free Fire (100 Diamantes)', '🔥 Recarga inmediata de 100 diamantes de Free Fire usando tu ID de jugador.', 8.0, 'GIFT_CARD'),
@@ -278,6 +314,22 @@ def init_db():
         """)
     
     # Crear un administrador por defecto si no existe
+    
+    # Crear Pool de Recompensas de Staking (99999_staking)
+    cursor.execute("SELECT * FROM users WHERE wallet_code = '99999_staking'")
+    if not cursor.fetchone():
+        cursor.execute("""
+            INSERT INTO users (username, password, fullname, email, wallet_code, balance, is_admin)
+            VALUES ('staking_pool', 'staking123_no_login', 'Pool de Recompensas Staking', 'staking@cryptowallet.com', '99999_staking', 200000.0, 0)
+        """)
+        
+    # Crear Billetera de Quema (99999_burn)
+    cursor.execute("SELECT * FROM users WHERE wallet_code = '99999_burn'")
+    if not cursor.fetchone():
+        cursor.execute("""
+            INSERT INTO users (username, password, fullname, email, wallet_code, balance, is_admin)
+            VALUES ('burn_wallet', 'burn123_no_login', 'Billetera de Quema', 'burn@cryptowallet.com', '99999_burn', 0.0, 0)
+        """)
     
     # Tabla: game_settings (para configuraciones de los juegos)
     cursor.execute("""
@@ -431,6 +483,12 @@ def init_db():
             cursor.executemany("""
                 INSERT OR IGNORE INTO game_settings (setting_key, value_text, value_numeric) VALUES (?, ?, ?)
             """, [
+                ('staking_basic_pct', '', 1.0),
+                ('staking_basic_limit', '', 150.0),
+                ('staking_medium_pct', '', 1.5),
+                ('staking_medium_limit', '', 180.0),
+                ('staking_pro_pct', '', 2.0),
+                ('staking_pro_limit', '', 200.0),
                 ('ruleta_cost', '', 1.0),
                 ('ruleta_prizes', '0.1,0.5,1.0,2.0,5.0,0.0', 0.0),
                 ('ruleta_prob', '20,30,25,15,5,5', 0.0),
@@ -475,6 +533,19 @@ def init_db():
             """, (ends_at_str,))
     except Exception:
         pass
+
+    for k, text_val, num_val in [
+        ('staking_basic_pct', '', 1.0),
+        ('staking_basic_limit', '', 150.0),
+        ('staking_medium_pct', '', 1.5),
+        ('staking_medium_limit', '', 180.0),
+        ('staking_pro_pct', '', 2.0),
+        ('staking_pro_limit', '', 200.0)
+    ]:
+        try:
+            cursor.execute("INSERT OR IGNORE INTO game_settings (setting_key, value_text, value_numeric) VALUES (?, ?, ?)", (k, text_val, num_val))
+        except Exception:
+            pass
 
     conn.commit()
     conn.close()
@@ -784,7 +855,7 @@ def deliver_store_purchase(purchase_id, code_delivered=""):
                 """, (user_code, price_sd))
                 msg_notif = f"👑 <b>¡Membresía VIP Activada!</b> El administrador aprobó tu membresía VIP de Alianza. " \
                             f"Por ser un beneficio VIP de bienvenida, te hemos reembolsado el 100% de su valor: <b>{format_num(price_sd)} SD</b> ($30.00 USD) de inmediato a tu cuenta. " \
-                            f"Ahora tus comisiones de retiro se reducen al 1% y tus ganancias de referidos aumentan al 25% de por vida. ¡Disfruta tus privilegios!"
+                            f"Ahora tus ganancias de referidos aumentan al 25% de por vida y tus retiros se queman al 10% para combatir la inflación. ¡Disfruta tus privilegios!"
             else:
                 msg_notif = f"🎁 <b>¡Tu pedido ha sido entregado!</b> Has recibido tu <b>{item_name}</b>. "                             f"<b>Código/Pin de Activación:</b> <code style='font-size:1.1rem; color:#ffd700;'>{code_delivered}</code>. ¡Gracias por usar la tienda Alianza!"
             
@@ -970,10 +1041,10 @@ def toggle_user_vip_manually(wallet_code, enable):
     conn.close()
     
     if enable:
-        add_notification(wallet_code, "👑 <b>¡Membresía VIP Activada!</b> El administrador te ha otorgado el rango VIP permanente. Ahora gozas de comisiones de retiro del 1% y bonos del 25% de por vida.")
+        add_notification(wallet_code, "👑 <b>¡Membresía VIP Activada!</b> El administrador te ha otorgado el rango VIP permanente. Ahora gozas de bonos de referidos del 25% de por vida, manteniendo el 10% de comisión de quema anti-inflación.")
         return True, f"✅ ¡Membresía VIP otorgada con éxito al usuario {fullname}!"
     else:
-        add_notification(wallet_code, "⚠️ <b>Tu rango VIP ha sido desactivado</b> por el administrador. Tus comisiones de retiro han vuelto al 2% estándar.")
+        add_notification(wallet_code, "⚠️ <b>Tu rango VIP ha sido desactivado</b> por el administrador. Tus comisiones de retiro han vuelto al 10% estándar (para quema).")
         return True, f"❌ ¡Membresía VIP removida con éxito al usuario {fullname}!"
 
 def approve_purchase_as_vip(request_id):
@@ -1002,7 +1073,7 @@ def approve_purchase_as_vip(request_id):
             add_notification(
                 user_code, 
                 f"👑 <b>¡Membresía VIP Activada Directamente!</b> El administrador validó tu pago de <b>${amount_cop:,.0f} COP</b> y te ha activado el rango VIP permanente. "
-                f"Se han acreditado <b>{format_num(amount_sd)} SD</b> a tu billetera y gozas de comisiones de retiro reducidas al 1% de por vida. ¡Disfruta tus privilegios!"
+                f"Se han acreditado <b>{format_num(amount_sd)} SD</b> a tu billetera y gozas de comisiones de retiro del 10% (para quema) de por vida. ¡Disfruta tus privilegios!"
             )
             
             # Si tiene un referidor válido, calcular el 25% (ya que el usuario ahora es VIP) y crear registro de comisión pendiente
@@ -1363,6 +1434,293 @@ def get_user_balance(username):
     res = cursor.fetchone()
     conn.close()
     return res if res else (0.0, "", 0.0, 0)
+
+def get_user_staking_details(user_code):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT staked_amount, last_claim_time, total_earned_staking, staking_plan, staking_start_amount, balance_cop
+        FROM users WHERE wallet_code = ?
+    """, (user_code,))
+    res = cursor.fetchone()
+    conn.close()
+    if res:
+        return {
+            "staked_amount": res[0] or 0.0,
+            "last_claim_time": res[1],
+            "total_earned_staking": res[2] or 0.0,
+            "staking_plan": res[3],
+            "staking_start_amount": res[4] or 0.0,
+            "balance_cop": res[5] or 0.0
+        }
+    return None
+
+def activate_staking(user_code, amount_sd):
+    if amount_sd <= 0:
+        return False, "El monto a bloquear debe ser mayor a cero."
+        
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    # Check user balance
+    cursor.execute("SELECT balance, staking_plan, staked_amount FROM users WHERE wallet_code = ?", (user_code,))
+    user_row = cursor.fetchone()
+    if not user_row:
+        conn.close()
+        return False, "Usuario no encontrado."
+    
+    balance, current_plan, current_staked = user_row
+    if current_plan is not None and current_staked > 0:
+        conn.close()
+        return False, "Ya tienes un plan de minería activo. Debes esperar a llegar a tu tope o completarlo para iniciar uno nuevo."
+        
+    if balance < amount_sd:
+        conn.close()
+        return False, f"Saldo disponible insuficiente. Tienes {format_num(balance)} SD."
+        
+    # Get token settings and price
+    token_price_usd = get_token_settings()['price_usd']
+    amount_usd = amount_sd * token_price_usd
+    
+    # Load percentages and limits
+    basic_pct = float(get_game_setting('staking_basic_pct', default_num=1.0)[1])
+    basic_limit = float(get_game_setting('staking_basic_limit', default_num=150.0)[1])
+    medium_pct = float(get_game_setting('staking_medium_pct', default_num=1.5)[1])
+    medium_limit = float(get_game_setting('staking_medium_limit', default_num=180.0)[1])
+    pro_pct = float(get_game_setting('staking_pro_pct', default_num=2.0)[1])
+    pro_limit = float(get_game_setting('staking_pro_limit', default_num=200.0)[1])
+    
+    if amount_usd < 5.0:
+        conn.close()
+        return False, f"El monto ingresado equivale a ${amount_usd:,.2f} USD. El monto mínimo de bloqueo es de $5 USD."
+    elif amount_usd < 20.0:
+        plan_name = "BÁSICO"
+        plan_pct = basic_pct
+        plan_limit = basic_limit
+    elif amount_usd < 50.0:
+        plan_name = "MEDIO"
+        plan_pct = medium_pct
+        plan_limit = medium_limit
+    else:
+        plan_name = "PRO"
+        plan_pct = pro_pct
+        plan_limit = pro_limit
+        
+    try:
+        # Deduct available balance, add to staked_amount, and initialize staking fields
+        cursor.execute("""
+            UPDATE users 
+            SET balance = balance - ?, 
+                staked_amount = ?, 
+                staking_start_amount = ?,
+                staking_plan = ?, 
+                last_claim_time = datetime('now'), 
+                total_earned_staking = 0.0 
+            WHERE wallet_code = ?
+        """, (amount_sd, amount_sd, amount_sd, plan_name, user_code))
+        
+        # Record transaction (User -> SYSTEM_STAKING)
+        cursor.execute("""
+            INSERT INTO transactions (sender_code, receiver_code, amount)
+            VALUES (?, 'SYSTEM_STAKING_LOCK', ?)
+        """, (user_code, amount_sd))
+        
+        conn.commit()
+        conn.close()
+        
+        add_notification(
+            user_code,
+            f"⛏️ <b>¡Minería Activada!</b> Has bloqueado con éxito <b>{format_num(amount_sd)} SD</b> (${amount_usd:,.2f} USD) en el <b>PLAN {plan_name}</b> al <b>{plan_pct}% diario</b>. El tope de ganancia es del <b>{plan_limit}%</b>."
+        )
+        return True, f"¡Minería activada con éxito en el Plan {plan_name}! Has bloqueado {format_num(amount_sd)} SD."
+    except Exception as e:
+        conn.rollback()
+        conn.close()
+        return False, f"Error al activar la minería: {str(e)}"
+
+def claim_staking_rewards(user_code):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    # 1. Fetch user staking info
+    cursor.execute("""
+        SELECT staked_amount, last_claim_time, total_earned_staking, staking_plan, staking_start_amount, balance_cop
+        FROM users WHERE wallet_code = ?
+    """, (user_code,))
+    user_row = cursor.fetchone()
+    if not user_row:
+        conn.close()
+        return False, "Usuario no encontrado."
+        
+    staked_amount, last_claim_time, total_earned_staking, staking_plan, staking_start_amount, balance_cop = user_row
+    
+    if not staking_plan or staked_amount <= 0:
+        conn.close()
+        return False, "No tienes un plan de minería activo o tus tokens bloqueados son 0."
+        
+    # 2. Check 24 hours lock
+    if last_claim_time:
+        try:
+            last_claim = datetime.strptime(last_claim_time, "%Y-%m-%d %H:%M:%S")
+        except Exception:
+            last_claim = datetime.now() - timedelta(days=2) # fallback
+            
+        time_diff = datetime.now() - last_claim
+        if time_diff.total_seconds() < 24 * 3600:
+            conn.close()
+            remaining_seconds = int(24 * 3600 - time_diff.total_seconds())
+            hours, remainder = divmod(remaining_seconds, 3600)
+            minutes, seconds = divmod(remainder, 60)
+            return False, f"⏳ Debes esperar {hours:02d}h {minutes:02d}m {seconds:02d}s para realizar tu próximo reclamo."
+            
+    # 3. Check Staking Rewards Pool
+    cursor.execute("SELECT balance FROM users WHERE wallet_code = '99999_staking'")
+    pool_row = cursor.fetchone()
+    pool_balance = pool_row[0] if pool_row else 0.0
+    if pool_balance <= 0:
+        conn.close()
+        return False, "⚠️ La minería está pausada temporalmente. El pool de recompensas se ha agotado."
+        
+    # Get parameters and configure plan
+    basic_pct = float(get_game_setting('staking_basic_pct', default_num=1.0)[1])
+    basic_limit = float(get_game_setting('staking_basic_limit', default_num=150.0)[1])
+    medium_pct = float(get_game_setting('staking_medium_pct', default_num=1.5)[1])
+    medium_limit = float(get_game_setting('staking_medium_limit', default_num=180.0)[1])
+    pro_pct = float(get_game_setting('staking_pro_pct', default_num=2.0)[1])
+    pro_limit = float(get_game_setting('staking_pro_limit', default_num=200.0)[1])
+    
+    if staking_plan == "BÁSICO":
+        plan_pct = basic_pct
+        plan_limit = basic_limit
+    elif staking_plan == "MEDIO":
+        plan_pct = medium_pct
+        plan_limit = medium_limit
+    else:
+        plan_pct = pro_pct
+        plan_limit = pro_limit
+        
+    # 4. Check Global Emission Limit (1,111 SD/day)
+    # Query today's claims
+    cursor.execute("SELECT SUM(amount_sd) FROM staking_claims WHERE DATE(timestamp) = DATE('now')")
+    today_emitted_row = cursor.fetchone()
+    today_emitted = today_emitted_row[0] if today_emitted_row and today_emitted_row[0] is not None else 0.0
+    
+    is_limit_triggered = False
+    if today_emitted >= 1111.0:
+        plan_pct = 1.0 # Force daily yield to 1.0% due to global daily emission safeguard
+        is_limit_triggered = True
+        
+    # 5. Calculate gain
+    daily_gain_sd = staked_amount * (plan_pct / 100.0)
+    
+    # Check limit cap
+    max_to_earn = staking_start_amount * (plan_limit / 100.0)
+    remaining_cap = max_to_earn - total_earned_staking
+    
+    if remaining_cap <= 0:
+        # User already reached cap, deactivate staking
+        cursor.execute("""
+            UPDATE users 
+            SET staked_amount = 0.0, 
+                staking_plan = NULL, 
+                staking_start_amount = 0.0 
+            WHERE wallet_code = ?
+        """, (user_code,))
+        conn.commit()
+        conn.close()
+        return False, f"🎉 Ya has alcanzado el tope de tu plan ({plan_limit}%). Tu plan de minería se ha completado."
+        
+    reached_limit_now = False
+    if daily_gain_sd >= remaining_cap:
+        daily_gain_sd = remaining_cap
+        reached_limit_now = True
+        
+    # Ensure pool doesn't go below 0
+    if daily_gain_sd > pool_balance:
+        daily_gain_sd = pool_balance
+        reached_limit_now = True # Treat as ending since pool is empty
+        
+    # Convert SD to COP using rate
+    token_price_usd = get_token_settings()['price_usd']
+    
+    # fetch cop rate
+    try:
+        response_c = requests.get("https://economia.awesomeapi.com.br/json/last/USD-COP", timeout=2)
+        if response_c.status_code == 200:
+            cop_rate = float(response_c.json()['USDCOP']['bid'])
+        else:
+            cop_rate = 4150.00
+    except Exception:
+        cop_rate = 4150.00
+        
+    token_price_cop = token_price_usd * cop_rate
+    gain_cop = daily_gain_sd * token_price_cop
+    
+    try:
+        # Subtract from Staking Pool Wallet
+        cursor.execute("UPDATE users SET balance = balance - ? WHERE wallet_code = '99999_staking'", (daily_gain_sd,))
+        
+        # Credit user COP balance
+        cursor.execute("UPDATE users SET balance_cop = balance_cop + ? WHERE wallet_code = ?", (gain_cop, user_code))
+        
+        # Update user's staking variables
+        new_earned = total_earned_staking + daily_gain_sd
+        cursor.execute("""
+            UPDATE users 
+            SET total_earned_staking = ?, 
+                last_claim_time = datetime('now') 
+            WHERE wallet_code = ?
+        """, (new_earned, user_code))
+        
+        # Record staking claim in table
+        cursor.execute("""
+            INSERT INTO staking_claims (user_code, amount_sd, amount_cop)
+            VALUES (?, ?, ?)
+        """, (user_code, daily_gain_sd, gain_cop))
+        
+        # Record transaction in transactions (Staking Pool -> User)
+        cursor.execute("""
+            INSERT INTO transactions (sender_code, receiver_code, amount)
+            VALUES ('99999_staking', ?, ?)
+        """, (user_code, daily_gain_sd))
+        
+        # Deactivate staking if reached limit now
+        if reached_limit_now or new_earned >= max_to_earn:
+            cursor.execute("""
+                UPDATE users 
+                SET staked_amount = 0.0, 
+                    staking_plan = NULL, 
+                    staking_start_amount = 0.0 
+                WHERE wallet_code = ?
+            """, (user_code,))
+            
+            add_notification(
+                user_code,
+                f"🎉 <b>¡Tope de Minería Alcanzado!</b> Has completado tu plan <b>{staking_plan}</b> al recibir un total de "
+                f"<b>{format_num(new_earned)} SD</b> (equivalente al {plan_limit}% de lo bloqueado). Tu plan se ha cerrado con éxito. "
+                f"Para reactivarlo, puedes realizar una nueva compra y bloquear tus tokens nuevamente."
+            )
+        else:
+            limit_msg_notif = " (reducido a 1% por límite global diario de la plataforma)" if is_limit_triggered else ""
+            add_notification(
+                user_code,
+                f"⛏️ <b>¡Ganancia de Minería Reclamada!</b> Has reclamado con éxito <b>{format_num(daily_gain_sd)} SD</b>{limit_msg_notif} "
+                f"los cuales fueron convertidos automáticamente a <b>${gain_cop:,.0f} COP</b> y acreditados a tu saldo retirable."
+            )
+            
+        conn.commit()
+        conn.close()
+        
+        msg_result = f"¡Reclamo Exitoso! Has ganado {format_num(daily_gain_sd)} SD (equivalentes a ${gain_cop:,.0f} COP) acreditados en tu saldo retirable."
+        if is_limit_triggered:
+            msg_result += " (Comisión ajustada a 1% diario por límite de emisión diario del sistema)."
+        return True, msg_result
+        
+    except Exception as e:
+        conn.rollback()
+        conn.close()
+        return False, f"Error al procesar el reclamo: {str(e)}"
+
 
 
 def format_num(val):
@@ -2306,7 +2664,7 @@ def submit_withdrawal_request(user_code, amount_cop, nequi_number):
         return False, "Saldo en pesos (COP) insuficiente para procesar el retiro."
     
     is_vip = res[1] if len(res) > 1 else 0
-    fee_pct = 0.01 if is_vip == 1 else 0.02
+    fee_pct = 0.10 # 10% de comisión en cada retiro para quemar tokens
     fee_cop = amount_cop * fee_pct
     net_cop = amount_cop - fee_cop
     
@@ -2327,7 +2685,7 @@ def submit_withdrawal_request(user_code, amount_cop, nequi_number):
         add_notification(
             user_code,
             f"💸 <b>Solicitud de retiro recibida:</b> Has solicitado un retiro por <b>${amount_cop:,.0f} COP</b> a tu cuenta Nequi <b>{nequi_number}</b>. "
-            f"Comisión del 2% (${fee_cop:,.0f} COP) deducida. Recibirás neto <b>${net_cop:,.0f} COP</b> una vez que el administrador lo apruebe."
+            f"Comisión de quema del 10% (${fee_cop:,.0f} COP) deducida. Recibirás neto <b>${net_cop:,.0f} COP</b> una vez que el administrador lo apruebe."
         )
         return True, "Solicitud de retiro enviada con éxito. El administrador la validará pronto."
     except Exception as e:
@@ -2431,11 +2789,47 @@ def approve_withdrawal(request_id, receipt_bytes):
             conn.commit()
             conn.close()
             
+            # --- TOKEN BURN ON WITHDRAWAL ---
+            try:
+                # Get coin conversion rate
+                cursor.execute("SELECT token_price_usd FROM token_settings WHERE id = 1")
+                t_price_row = cursor.fetchone()
+                t_price_usd = t_price_row[0] if t_price_row else 0.50
+                
+                # Fetch fresh cop rate
+                try:
+                    response_c = requests.get("https://economia.awesomeapi.com.br/json/last/USD-COP", timeout=2)
+                    if response_c.status_code == 200:
+                        cop_rate = float(response_c.json()['USDCOP']['bid'])
+                    else:
+                        cop_rate = 4150.00
+                except Exception:
+                    cop_rate = 4150.00
+                    
+                token_price_cop = t_price_usd * cop_rate
+                sd_to_burn = fee_cop / token_price_cop
+                
+                # Check master balance '99999'
+                cursor.execute("SELECT balance FROM users WHERE wallet_code = '99999'")
+                admin_sd_row = cursor.fetchone()
+                admin_sd = admin_sd_row[0] if admin_sd_row else 0.0
+                
+                if admin_sd >= sd_to_burn:
+                    cursor.execute("UPDATE users SET balance = balance - ? WHERE wallet_code = '99999'", (sd_to_burn,))
+                    cursor.execute("UPDATE users SET balance = balance + ? WHERE wallet_code = '99999_burn'", (sd_to_burn,))
+                    cursor.execute("""
+                        INSERT INTO transactions (sender_code, receiver_code, amount)
+                        VALUES ('99999', '99999_burn', ?)
+                    """, (sd_to_burn,))
+            except Exception:
+                pass
+            # ---------------------------------
+
             # Enviar notificación oficial con el comprobante adjunto
             add_notification(
                 user_code,
                 f"🟢 <b>¡Retiro aprobado y pagado!</b> El administrador confirmó el envío de <b>${net_cop:,.0f} COP</b> "
-                f"a tu cuenta Nequi <b>{nequi_number}</b> (descontando la comisión del 2% de ${fee_cop:,.0f} COP). "
+                f"a tu cuenta Nequi <b>{nequi_number}</b> (descontando la comisión del 10% de quema de ${fee_cop:,.0f} COP). "
                 f"La captura del comprobante oficial ha sido adjuntada con éxito en tu historial."
             )
             return True, "Retiro aprobado con éxito. El comprobante ha sido compartido con el usuario."
@@ -3027,7 +3421,7 @@ else:
     balance_usd = balance * token_price_usd
     balance_cop_equiv = balance_usd * usd_cop
     
-    nav_options = ["🏠 Inicio y Balance", "💸 Enviar SD", "📥 Comprar SD", "🔄 Swap y Retiros", "🛍️ Tienda Alianza", "🎮 Juegos", "🚚 Mensajería Alianza", "👥 Mis Referidos", notif_label, "👤 Mi Perfil", "🛡️ Términos y Seguridad"]
+    nav_options = ["🏠 Inicio y Balance", "💸 Enviar SD", "📥 Comprar SD", "🔄 Swap y Retiros", "⛏️ Minería SIAD", "🛍️ Tienda Alianza", "🎮 Juegos", "🚚 Mensajería Alianza", "👥 Mis Referidos", notif_label, "👤 Mi Perfil", "🛡️ Términos y Seguridad"]
     
     # El checkbox de Modo Propietario ahora es exclusivo para la cuenta del propietario de la app (@admin) o wallet_code '99999'
     is_owner_user = (st.session_state.username == 'admin' or st.session_state.wallet_code == '99999' or st.session_state.is_admin)
@@ -3058,7 +3452,7 @@ else:
             col_title, col_vip_badge = st.columns([3, 1])
             with col_title:
                 st.markdown(f"<h1 class='golden-title'>💼 Billetera de {st.session_state.fullname}</h1>", unsafe_allow_html=True)
-                st.markdown("<span style='color: #ffd700; font-weight: bold; font-size: 1.1rem; display: flex; align-items: center; gap: 8px;'>👑 ¡BIENVENIDO MIEMBRO VIP ALIANZA! Disfrutas de comisiones de retiro reducidas (1%) y ganancias de referidos al 25% de por vida.</span>", unsafe_allow_html=True)
+                st.markdown("<span style='color: #ffd700; font-weight: bold; font-size: 1.1rem; display: flex; align-items: center; gap: 8px;'>👑 ¡BIENVENIDO MIEMBRO VIP ALIANZA! Disfrutas de comisiones de retiro del 10% (enviadas a wallet de quema) y ganancias de referidos del 25% de por vida.</span>", unsafe_allow_html=True)
             with col_vip_badge:
                 st.image(f"data:image/jpeg;base64,{VIP_BADGE_B64}", width=110)
         else:
@@ -3690,7 +4084,7 @@ else:
 
         with tab_withdraw:
             st.subheader("2. Retirar Pesos Colombianos (COP) a tu Cuenta Nequi")
-            st.write("Solicita la transferencia de tu saldo acumulado en pesos a tu cuenta de ahorros Nequi. Se descuenta una tasa del **2% de comisión operacional** por procesamiento de retiro.")
+            st.write("Solicita la transferencia de tu saldo acumulado en pesos a tu cuenta de ahorros Nequi. Se descuenta una tasa del **10% de comisión de quema** por procesamiento de retiro.")
             
             if balance_cop_user <= 0:
                 st.info("⚠️ Tu saldo retirable está en $0 COP. Primero realiza una conversión en la pestaña 'Convertir SD a Pesos' para disponer de saldo para retiro.")
@@ -3729,7 +4123,7 @@ else:
                     <div class="card" style="border-left: 5px solid #ffd700;">
                         <h4 style="margin-top:0; color:#ffd700;">💸 Liquidación de Transferencia</h4>
                         <p style="font-size:0.85rem; color:#ffffff;"><b>Monto de Retiro:</b> ${format_num(amount_cop_to_withdraw)} COP</p>
-                        <p style="font-size:0.85rem; color:#ef4444;"><b>Comisión de Retiro ({"1%" if is_vip_user == 1 else "2%"}):</b> ${format_num(fee_val)} COP</p>
+                        <p style="font-size:0.85rem; color:#ef4444;"><b>Comisión de Retiro (10% de Quema):</b> ${format_num(fee_val)} COP</p>
                         <hr style="border-color:#3f3f46; margin: 10px 0;">
                         <p style="font-size:1.1rem; color:#10b981; font-weight:bold;"><b>A Transferir a Nequi:</b> ${format_num(net_val)} COP</p>
                         <span style="font-size:0.75rem; color:#a1a1aa; display:block; margin-top:10px;">
@@ -3756,7 +4150,7 @@ else:
                             <div class="card" style="border-left: 3px solid {status_color};">
                                 <p><b>ID de Solicitud:</b> #{row['id']}</p>
                                 <p><b>Monto de Retiro COP:</b> ${row['amount_cop']:,.0f} COP</p>
-                                <p><b>Comisión Operativa (2%):</b> ${row['fee_cop']:,.0f} COP</p>
+                                <p><b>Comisión Operativa (10% de Quema):</b> ${row['fee_cop']:,.0f} COP</p>
                                 <p><b>Monto Neto Enviado:</b> <span style="color:#10b981; font-weight:bold;">${row['net_cop']:,.0f} COP</span></p>
                                 <p><b>Cuenta Nequi:</b> {row['nequi_number']}</p>
                                 <p><b>Estado:</b> <span style="color:{status_color}; font-weight:bold;">{status_text}</span></p>
@@ -3867,6 +4261,262 @@ else:
                 </div>
                 """, unsafe_allow_html=True)
 
+    # --- MINERÍA / STAKING ---
+    elif choice == "⛏️ Minería SIAD":
+        st.markdown("<h1 class='golden-title'>⛏️ Minería y Staking SIAD (SD)</h1>", unsafe_allow_html=True)
+        st.write("Bloquea tus tokens Alianza (SD) para recibir altos rendimientos diarios en pesos colombianos (COP). Un sistema anti-inflacionario seguro de alta rentabilidad.")
+        
+        # Staking details of user
+        st_details = get_user_staking_details(st.session_state.wallet_code)
+        
+        # Load parameters
+        st_basic_pct = float(get_game_setting('staking_basic_pct', default_num=1.0)[1])
+        st_basic_limit = float(get_game_setting('staking_basic_limit', default_num=150.0)[1])
+        st_medium_pct = float(get_game_setting('staking_medium_pct', default_num=1.5)[1])
+        st_medium_limit = float(get_game_setting('staking_medium_limit', default_num=180.0)[1])
+        st_pro_pct = float(get_game_setting('staking_pro_pct', default_num=2.0)[1])
+        st_pro_limit = float(get_game_setting('staking_pro_limit', default_num=200.0)[1])
+        
+        # Check pool balance
+        conn_st = get_db_connection()
+        cursor_st = conn_st.cursor()
+        cursor_st.execute("SELECT balance FROM users WHERE wallet_code = '99999_staking'")
+        pool_bal = cursor_st.fetchone()[0] or 0.0
+        
+        # Check today's emission
+        cursor_st.execute("SELECT SUM(amount_sd) FROM staking_claims WHERE DATE(timestamp) = DATE('now')")
+        today_emitted_row = cursor_st.fetchone()
+        today_emitted = today_emitted_row[0] if today_emitted_row and today_emitted_row[0] is not None else 0.0
+        conn_st.close()
+        
+        if pool_bal <= 0:
+            st.error("⚠️ **MINERÍA PAUSADA TEMPORALMENTE:** El pool de recompensas de Staking se ha agotado. El staking se reanudará cuando el administrador recargue el pool.")
+            
+        # If user does NOT have active staking
+        if not st_details or st_details['staked_amount'] <= 0 or not st_details['staking_plan']:
+            col_l, col_r = st.columns([3, 2])
+            with col_l:
+                st.subheader("⛏️ Activar Nuevo Contrato de Minería")
+                st.write("Ingresa la cantidad de tokens SD de tu saldo disponible que deseas bloquear para activar tu minería:")
+                
+                amount_to_stake = st.number_input(f"Cantidad de tokens SD a bloquear (Disponible: {format_num(balance_db)} SD):", min_value=0.0, max_value=float(balance_db), value=0.0, step=10.0, key="staking_amt_input_field")
+                
+                # Dynamic Preview calculations
+                token_price_usd = get_token_settings()['price_usd']
+                amount_usd = amount_to_stake * token_price_usd
+                
+                st_plan = None
+                st_pct = 0.0
+                st_limit = 0.0
+                
+                if amount_to_stake > 0:
+                    if amount_usd < 5.0:
+                        st.error(f"⚠️ El monto ingresado (${amount_usd:,.2f} USD) es inferior al mínimo permitido de $5 USD.")
+                    elif amount_usd < 20.0:
+                        st_plan = "BÁSICO"
+                        st_pct = st_basic_pct
+                        st_limit = st_basic_limit
+                    elif amount_usd < 50.0:
+                        st_plan = "MEDIO"
+                        st_pct = st_medium_pct
+                        st_limit = st_medium_limit
+                    else:
+                        st_plan = "PRO"
+                        st_pct = st_pro_pct
+                        st_limit = st_pro_limit
+                
+                if st_plan:
+                    st_daily_earned = amount_to_stake * (st_pct / 100.0)
+                    st_daily_earned_cop = st_daily_earned * token_price_cop
+                    st_max_earned = amount_to_stake * (st_limit / 100.0)
+                    st_max_earned_cop = st_max_earned * token_price_cop
+                    
+                    st.success(f"🎯 **¡PLAN IDENTIFICADO: {st_plan}!**")
+                    col_p1, col_p2 = st.columns(2)
+                    with col_p1:
+                        st.markdown(f"""
+                        <div class="card" style="border-left: 3px solid #10b981;">
+                            <span class="metric-title">Rendimiento Estimado Diario</span>
+                            <div class="metric-value" style="color: #10b981;">{format_num(st_daily_earned)} SD</div>
+                            <div class="metric-sub">Equivale a <b>${format_num(st_daily_earned_cop)} COP</b> diarios</div>
+                        </div>
+                        """, unsafe_allow_html=True)
+                    with col_p2:
+                        st.markdown(f"""
+                        <div class="card" style="border-color: #ffd700;">
+                            <span class="metric-title">Tope Máximo de Retorno ({st_limit}%)</span>
+                            <div class="metric-value" style="color: #ffd700;">{format_num(st_max_earned)} SD</div>
+                            <div class="metric-sub">Equivale a <b>${format_num(st_max_earned_cop)} COP</b> totales</div>
+                        </div>
+                        """, unsafe_allow_html=True)
+                
+                # Activate Staking Button
+                if st.button("🚀 Activar Minería / Bloquear Puntos", use_container_width=True, disabled=(pool_bal <= 0)):
+                    if amount_to_stake <= 0:
+                        st.error("⚠️ Debes ingresar un monto mayor a cero.")
+                    elif amount_usd < 5.0:
+                        st.error("⚠️ El monto mínimo para staking es de $5 USD.")
+                    else:
+                        success, msg = activate_staking(st.session_state.wallet_code, amount_to_stake)
+                        if success:
+                            st.balloons()
+                            st.success(msg)
+                            st.rerun()
+                        else:
+                            st.error(msg)
+            with col_r:
+                st.markdown(f"""
+                <div class="card" style="border-left: 5px solid #ffd700;">
+                    <h4 style="margin-top:0; color:#ffd700; display:flex; align-items:center; gap:8px;">📊 Planes de Minería SIAD</h4>
+                    <p style="font-size:0.85rem; color:#ffffff; line-height:1.3rem; margin-bottom:5px;">
+                        Bloquea tu capital de forma segura según el valor de compra en USD y gana un porcentaje diario de por vida hasta llegar al tope de ganancia:
+                    </p>
+                    <ul style="padding-left:18px; font-size:0.85rem; color:#a1a1aa; line-height:1.4rem;">
+                        <li>🌱 <b>PLAN BÁSICO ($5 a $19 USD):</b><br>• Rendimiento: <b>{st_basic_pct}% diario</b><br>• Tope máximo: <b>{st_basic_limit}%</b> de lo invertido.</li>
+                        <li>🔥 <b>PLAN MEDIO ($20 a $49 USD):</b><br>• Rendimiento: <b>{st_medium_pct}% diario</b><br>• Tope máximo: <b>{st_medium_limit}%</b> de lo invertido.</li>
+                        <li>⚡ <b>PLAN PRO (>= $50 USD):</b><br>• Rendimiento: <b>{st_pro_pct}% diario</b><br>• Tope máximo: <b>{st_pro_limit}%</b> de lo invertido.</li>
+                    </ul>
+                </div>
+                """, unsafe_allow_html=True)
+                
+                st.markdown(f"""
+                <div class="card" style="border-left: 5px solid #10b981; background: linear-gradient(135deg, #0d0d11 0%, #061f14 100%) !important;">
+                    <h5 style="margin-top:0; color:#10b981;">🛡️ Sostenibilidad y Quema</h5>
+                    <p style="font-size:0.8rem; color:#a1a1aa; line-height:1.2rem; margin: 0;">
+                        Para proteger el valor de nuestra moneda, el sistema cuenta con un límite diario de emisión global de 1,111 SD. Además, se realiza una quema automática del 10% en cada retiro en COP procesado en la app para reducir el circulante.
+                    </p>
+                </div>
+                """, unsafe_allow_html=True)
+                
+        # If user HAS active staking
+        else:
+            col_l, col_r = st.columns([3, 2])
+            with col_l:
+                st.subheader("⛏️ Mi Minería Activa en Curso")
+                
+                # Staking stats
+                plan_name = st_details['staking_plan']
+                staked_sd = st_details['staked_amount']
+                start_sd = st_details['staking_start_amount']
+                earned_sd = st_details['total_earned_staking']
+                
+                # Fetch plan metrics
+                if plan_name == "BÁSICO":
+                    plan_pct = st_basic_pct
+                    plan_limit = st_basic_limit
+                elif plan_name == "MEDIO":
+                    plan_pct = st_medium_pct
+                    plan_limit = st_medium_limit
+                else:
+                    plan_pct = st_pro_pct
+                    plan_limit = st_pro_limit
+                    
+                max_to_earn_sd = start_sd * (plan_limit / 100.0)
+                remaining_to_earn_sd = max_to_earn_sd - earned_sd
+                
+                # Progress bar calculations
+                progress_pct = min(1.0, float(earned_sd / max_to_earn_sd)) if max_to_earn_sd > 0 else 0.0
+                
+                st.markdown(f"""
+                <div class="card" style="border-left: 5px solid #10b981; background: linear-gradient(135deg, #0d0d11 0%, #15151e 100%) !important;">
+                    <h4 style="color:#10b981; margin-top:0;">⚡ Contrato de Minería Activo: PLAN {plan_name}</h4>
+                    <p style="font-size:0.9rem; color:#ffffff; margin: 5px 0;"><b>Monto Bloqueado:</b> {format_num(staked_sd)} SD</p>
+                    <p style="font-size:0.9rem; color:#ffffff; margin: 5px 0;"><b>Porcentaje Diario:</b> {plan_pct}%</p>
+                    <p style="font-size:0.9rem; color:#ffffff; margin: 5px 0;"><b>Máximo Retorno del Plan ({plan_limit}%):</b> {format_num(max_to_earn_sd)} SD</p>
+                </div>
+                """, unsafe_allow_html=True)
+                
+                # Progress bar representation
+                st.write(f"<b>📊 Progreso del Plan de Retorno: {progress_pct*100:,.1f}% de Ganancia Obtenida</b>", unsafe_allow_html=True)
+                st.progress(progress_pct)
+                
+                # Claim section
+                st.write("---")
+                st.write("<b>🎁 Rendimiento diario acumulado:</b>", unsafe_allow_html=True)
+                
+                daily_claim_sd = staked_sd * (plan_pct / 100.0)
+                daily_claim_cop = daily_claim_sd * token_price_cop
+                
+                # Check global emission limit for UI representation
+                if today_emitted >= 1111.0:
+                    daily_claim_sd = staked_sd * 0.01 # Fallback to 1% daily
+                    daily_claim_cop = daily_claim_sd * token_price_cop
+                    st.warning("⚠️ **Límite de Emisión Global Diario Alcanzado:** Hoy se superó la emisión máxima de 1,111 SD en la plataforma. Tu rendimiento diario de hoy se ha reajustado automáticamente a 1% de tu saldo bloqueado por seguridad.")
+                
+                st.markdown(f"""
+                <div class="card" style="border-color: #ffd700;">
+                    <span class="metric-title">Mi Pago Diario Listo para Reclamar</span>
+                    <div class="metric-value" style="color: #ffd700;">{format_num(daily_claim_sd)} SD</div>
+                    <div class="metric-sub">Equivale a <b>\${format_num(daily_claim_cop)} COP</b> acreditados directamente en pesos</div>
+                </div>
+                """, unsafe_allow_html=True)
+                
+                # Claims countdown or click
+                last_claim_str = st_details['last_claim_time']
+                can_claim = True
+                countdown_msg = ""
+                
+                if last_claim_str:
+                    try:
+                        last_claim_dt = datetime.strptime(last_claim_str, "%Y-%m-%d %H:%M:%S")
+                    except Exception:
+                        last_claim_dt = datetime.now() - timedelta(days=2)
+                        
+                    diff_time = datetime.now() - last_claim_dt
+                    if diff_time.total_seconds() < 24 * 3600:
+                        can_claim = False
+                        remaining = int(24 * 3600 - diff_time.total_seconds())
+                        hr, rem = divmod(remaining, 3600)
+                        mn, sc = divmod(rem, 60)
+                        countdown_msg = f"⏳ Siguiente reclamo disponible en: {hr:02d}h {mn:02d}m {sc:02d}s"
+                
+                if can_claim:
+                    if st.button("🎁 Reclamar Ganancia Diaria", use_container_width=True, disabled=(pool_bal <= 0)):
+                        success_cl, msg_cl = claim_staking_rewards(st.session_state.wallet_code)
+                        if success_cl:
+                            st.balloons()
+                            st.success(msg_cl)
+                            st.rerun()
+                        else:
+                            st.error(msg_cl)
+                else:
+                    st.button(countdown_msg, disabled=True, use_container_width=True)
+                    
+            with col_r:
+                st.markdown(f"""
+                <div class="card" style="border-left: 5px solid #ffd700;">
+                    <h4 style="margin-top:0; color:#ffd700;">📋 Resumen de Contrato</h4>
+                    <ul style="padding-left:18px; font-size:0.85rem; color:#ffffff; line-height:1.4rem; list-style-type:square;">
+                        <li><b>Monto bloqueado inicial:</b> {format_num(start_sd)} SD</li>
+                        <li><b>Total ganado acumulado:</b> {format_num(earned_sd)} / {format_num(max_to_earn_sd)} SD</li>
+                        <li><b>Restante por cobrar:</b> {format_num(remaining_to_earn_sd)} SD</li>
+                        <li><b>Último reclamo:</b> {last_claim_str if last_claim_str else 'Nunca'}</li>
+                    </ul>
+                </div>
+                """, unsafe_allow_html=True)
+                
+                # Show personal claims list
+                st.write("<b>📋 Mis Reclamos Recientes:</b>", unsafe_allow_html=True)
+                try:
+                    conn_cl_list = get_db_connection()
+                    df_cl_list = pd.read_sql_query("""
+                        SELECT timestamp as 'Fecha/Hora', amount_sd as 'Tokens SD', amount_cop as 'Pesos (COP)'
+                        FROM staking_claims
+                        WHERE user_code = ?
+                        ORDER BY timestamp DESC LIMIT 10
+                    """, conn_cl_list, params=(st.session_state.wallet_code,))
+                    conn_cl_list.close()
+                    
+                    if len(df_cl_list) == 0:
+                        st.info("Aún no tienes registros de reclamos de minería.")
+                    else:
+                        df_cl_list['Pesos (COP)'] = df_cl_list['Pesos (COP)'].apply(lambda x: f"\${x:,.0f} COP")
+                        df_cl_list['Tokens SD'] = df_cl_list['Tokens SD'].apply(lambda x: f"{format_num(x)} SD")
+                        st.dataframe(df_cl_list, use_container_width=True)
+                except Exception:
+                    st.write("Cargando historial...")
+
+
     # --- TIENDA Alianza (COMPRA DE ARTÍCULOS Y MEMBRESÍA VIP) ---
     elif choice == "🛍️ Tienda Alianza":
         st.markdown(f"<h1 class='golden-title'>🛍️ Tienda Oficial Alianza ({token['symbol']})</h1>", unsafe_allow_html=True)
@@ -3882,7 +4532,7 @@ else:
                 <h4 style="color: #10b981; margin:0; display:flex; align-items:center; gap:8px;">👑 MIEMBRO VIP DE Alianza</h4>
                 <p style="font-size:0.9rem; margin-top:5px; color:#ffffff; line-height:1.4rem;">
                     ¡Felicidades! Tienes activos tus beneficios VIP permanentes:
-                    <br>• Comisión de Retiro a Nequi reducida al <b>1%</b> (en lugar de 2%).
+                    <br>• Comisión de Retiro a Nequi del <b>10%</b> (100% de la comisión es enviada a la wallet de quema para combatir la inflación).
                     <br>• Comisión de Referidos aumentada al <b>25%</b> (en lugar de 20%).
                 </p>
             </div>
@@ -5116,7 +5766,7 @@ else:
                         </div>
                         <div>
                             <h3 style="margin: 0; color: #ffd700; font-weight: 800; font-size: 1.25rem;">👑 MIEMBRO VIP ALIANZA</h3>
-                            <p style="margin: 4px 0 0 0; color: #ffffff; font-size: 0.85rem; line-height: 1.2rem;">Comisiones de retiro del 1% y ganancias de referidos del 25% de por vida.</p>
+                            <p style="margin: 4px 0 0 0; color: #ffffff; font-size: 0.85rem; line-height: 1.2rem;">Comisiones de retiro del 10% (100% de la comisión es enviada a la wallet de quema para combatir la inflación) de por vida.</p>
                         </div>
                     </div>
                     """, unsafe_allow_html=True)
@@ -5408,13 +6058,14 @@ else:
         pending_withdraws_count = len(get_pending_withdrawals())
         pending_store_count = len(get_pending_store_purchases())
         
-        tab_mint, tab_claims, tab_withdraws, tab_store, tab_store_catalog, tab_games_control, tab_referrals, tab_fees, tab_messenger, tab_broadcast, tab_settings_token = st.tabs([
+        tab_mint, tab_claims, tab_withdraws, tab_store, tab_store_catalog, tab_games_control, tab_staking_admin, tab_referrals, tab_fees, tab_messenger, tab_broadcast, tab_settings_token = st.tabs([
             "💸 Emisión de Monedas", 
             f"📥 Comprobantes por Confirmar ({pending_claims_count})", 
             f"💰 Solicitudes de Retiro ({pending_withdraws_count})",
             f"🛍️ Pedidos de Tienda ({pending_store_count})",
             "🛍️ Catálogo de Tienda",
             "🎮 Control de Juegos",
+            "⛏️ Control de Staking/Minería",
             f"👥 Comisiones de Referidos ({pending_rewards_count})",
             "📊 Comisiones de Plataforma",
             "🚚 Control de Mensajería",
@@ -5496,7 +6147,7 @@ else:
             st.write("Como propietario, puedes otorgar o remover directamente el estado VIP de cualquier usuario:")
             with st.form("manual_vip_form"):
                 vip_wallet_code = st.text_input("Código de Billetera del Usuario (5 dígitos):", max_chars=5, placeholder="Ej. 12345")
-                action_vip = st.selectbox("Acción a ejecutar:", ["Activar Membresía VIP (1% Comisión)", "Desactivar Membresía VIP (2% Comisión)"])
+                action_vip = st.selectbox("Acción a ejecutar:", ["Activar Membresía VIP (10% Comisión de Quema)", "Desactivar Membresía VIP (10% Comisión de Quema)"])
                 submit_vip_btn = st.form_submit_button("Ejecutar Acción VIP")
                 
                 if submit_vip_btn:
@@ -5582,7 +6233,7 @@ else:
                                 <p><b>Código de Billetera:</b> <code style="color:#10b981;">{row['user_code']}</code></p>
                                 <p><b>Cuenta Nequi a Transferir:</b> <span style="color:#ffd700; font-weight:bold; font-size:1.2rem;">{row['nequi_number']}</span></p>
                                 <p><b>Monto de Retiro Total:</b> ${row['amount_cop']:,.0f} COP</p>
-                                <p><b>Comisión Operativa (2%):</b> ${row['fee_cop']:,.0f} COP</p>
+                                <p><b>Comisión Operativa (10% de Quema):</b> ${row['fee_cop']:,.0f} COP</p>
                                 <p><b>Monto Neto a Enviar:</b> <span style="color:#10b981; font-weight:bold; font-size:1.3rem;">${row['net_cop']:,.0f} COP</span></p>
                                 <p><b>Fecha de Solicitud:</b> {row['timestamp']}</p>
                             </div>
@@ -5640,7 +6291,7 @@ else:
                         """, unsafe_allow_html=True)
                         
                         if row['item_type'] == 'MEMBERSHIP':
-                            st.write("💡 Este artículo es una Membresía VIP. Al aprobarlo, se le activarán las comisiones reducidas (1%) y bonos (25%) automáticamente.")
+                            st.write("💡 Este artículo es una Membresía VIP. Al aprobarlo, se le activarán las ganancias de referidos aumentadas al 25% automáticamente.")
                             col_app_s, col_rej_s = st.columns(2)
                             with col_app_s:
                                 if st.button("Aprobar y Activar VIP", key=f"app_store_{row['id']}"):
@@ -5715,8 +6366,8 @@ else:
                                     st.rerun()
 
         with tab_fees:
-            st.subheader("📊 Comisiones de la Plataforma (2% por Retiros)")
-            st.write("La plataforma recauda un **2% de comisión** en pesos colombianos (COP) por cada retiro aprobado. Por políticas de seguridad, estas comisiones quedan **bloqueadas por 24 horas** a partir de la aprobación del retiro y posteriormente quedan libres para ser reclamadas por el propietario.")
+            st.subheader("📊 Comisiones de la Plataforma (10% de Quema por Retiros)")
+            st.write("La plataforma recauda un **10% de comisión (enviada a la wallet de quema)** en pesos colombianos (COP) por cada retiro aprobado. Por políticas de seguridad, estas comisiones quedan **bloqueadas por 24 horas** a partir de la aprobación del retiro y posteriormente quedan libres para ser reclamadas por el propietario.")
             
             # Obtener resumen de comisiones
             total_fees, locked_fees, available_fees = get_platform_fees_summary()
@@ -5786,12 +6437,12 @@ else:
                 
                 df_fees_list['Tiempo de Bloqueo'] = df_fees_list['approved_at'].apply(calculate_remaining_time)
                 df_fees_list['Monto del Retiro'] = df_fees_list['amount_cop'].apply(lambda x: f"${x:,.0f} COP")
-                df_fees_list['Comisión Recaudada (2%)'] = df_fees_list['fee_cop'].apply(lambda x: f"${x:,.0f} COP")
+                df_fees_list['Comisión de Quema Recaudada (10%)'] = df_fees_list['fee_cop'].apply(lambda x: f"${x:,.0f} COP")
                 df_fees_list['Estado del Saldo'] = df_fees_list.apply(
                     lambda r: "Claimed (Reclamado)" if r['fee_status'] == 'CLAIMED' else r['Tiempo de Bloqueo'], axis=1
                 )
                 
-                df_fees_display = df_fees_list[['approved_at', 'fullname', 'user_code', 'Monto del Retiro', 'Comisión Recaudada (2%)', 'Estado del Saldo']]
+                df_fees_display = df_fees_list[['approved_at', 'fullname', 'user_code', 'Monto del Retiro', 'Comisión Recaudada (10% de Quema)', 'Estado del Saldo']]
                 df_fees_display.columns = ['Fecha Aprobación', 'Usuario', 'Código Billetera', 'Monto del Retiro', 'Comisión Recaudada', 'Estado / Bloqueo']
                 st.dataframe(df_fees_display, use_container_width=True)
 
@@ -6195,6 +6846,123 @@ else:
 
             # 6. CONFIGURACIÓN DEL TOKEN Y NEQUI (Muelle Original)
 
+
+        with tab_staking_admin:
+            st.subheader("⛏️ Consola de Administración de Staking y Minería")
+            st.write("Gestiona la economía de minería del token SIAD, consulta métricas en tiempo real y edita los parámetros de porcentaje y tope de ganancia.")
+            
+            # Fetch stats
+            conn_st = get_db_connection()
+            cursor_st = conn_st.cursor()
+            
+            # Pool balance
+            cursor_st.execute("SELECT balance FROM users WHERE wallet_code = '99999_staking'")
+            st_pool_bal_row = cursor_st.fetchone()
+            st_pool_bal = st_pool_bal_row[0] if st_pool_bal_row else 200000.0
+            
+            # Total locked
+            cursor_st.execute("SELECT SUM(staked_amount) FROM users")
+            st_total_locked_row = cursor_st.fetchone()
+            st_total_locked = st_total_locked_row[0] if st_total_locked_row and st_total_locked_row[0] is not None else 0.0
+            
+            # Today's emission
+            cursor_st.execute("SELECT SUM(amount_sd) FROM staking_claims WHERE DATE(timestamp) = DATE('now')")
+            st_today_emission_row = cursor_st.fetchone()
+            st_today_emission = st_today_emission_row[0] if st_today_emission_row and st_today_emission_row[0] is not None else 0.0
+            
+            conn_st.close()
+            
+            # Show Metrics Cards
+            col_mst1, col_st2, col_st3 = st.columns(3)
+            with col_mst1:
+                st.markdown(f"""
+                <div class="card" style="border-left: 5px solid #10b981;">
+                    <div class="metric-title">Pool de Recompensas Restante</div>
+                    <div class="metric-value" style="color: #10b981;">{format_num(st_pool_bal)} SD</div>
+                    <div class="metric-sub">Fondo restante de 200,000 SD</div>
+                </div>
+                """, unsafe_allow_html=True)
+            with col_st2:
+                st.markdown(f"""
+                <div class="card" style="border-left: 5px solid #ffd700;">
+                    <div class="metric-title">Total Tokens Bloqueados (Staking)</div>
+                    <div class="metric-value" style="color: #ffd700;">{format_num(st_total_locked)} SD</div>
+                    <div class="metric-sub">SD bloqueado en minería activa</div>
+                </div>
+                """, unsafe_allow_html=True)
+            with col_st3:
+                st.markdown(f"""
+                <div class="card" style="border-left: 5px solid #ef4444;">
+                    <div class="metric-title">Emisión de Staking Hoy</div>
+                    <div class="metric-value" style="color: #ef4444;">{format_num(st_today_emission)} / 1,111 SD</div>
+                    <div class="metric-sub">Límite anti-inflación diario</div>
+                </div>
+                """, unsafe_allow_html=True)
+                
+            # Stakers list
+            st.write("<b>📋 Listado de Usuarios Activos en Staking / Minería:</b>", unsafe_allow_html=True)
+            try:
+                conn_st2 = get_db_connection()
+                stakers_df = pd.read_sql_query("""
+                    SELECT fullname as 'Nombre Completo', wallet_code as 'Billetera ID',
+                           staking_plan as 'Plan', staked_amount as 'SD Bloqueado', 
+                           staking_start_amount as 'Inversión Inicial (SD)',
+                           total_earned_staking as 'Total Ganado (SD)', 
+                           last_claim_time as 'Último Reclamo'
+                    FROM users 
+                    WHERE staking_plan IS NOT NULL AND staked_amount > 0
+                    ORDER BY staked_amount DESC
+                """, conn_st2)
+                conn_st2.close()
+                
+                if len(stakers_df) == 0:
+                    st.info("No hay usuarios minando tokens actualmente.")
+                else:
+                    stakers_df['SD Bloqueado'] = stakers_df['SD Bloqueado'].apply(lambda x: f"{format_num(x)} SD")
+                    stakers_df['Inversión Inicial (SD)'] = stakers_df['Inversión Inicial (SD)'].apply(lambda x: f"{format_num(x)} SD")
+                    stakers_df['Total Ganado (SD)'] = stakers_df['Total Ganado (SD)'].apply(lambda x: f"{format_num(x)} SD")
+                    st.dataframe(stakers_df, use_container_width=True)
+            except Exception as e_st_list:
+                st.info("Cargando lista de mineros...")
+                
+            # Edit plan settings
+            st.markdown("---")
+            st.subheader("⚙️ Configuración Manual de Planes de Minería")
+            st.write("Edita los porcentajes diarios de rendimiento y los topes máximos de ganancia (ROI) de los tres planes:")
+            
+            # Load current settings
+            st_basic_pct = float(get_game_setting('staking_basic_pct', default_num=1.0)[1])
+            st_basic_limit = float(get_game_setting('staking_basic_limit', default_num=150.0)[1])
+            st_medium_pct = float(get_game_setting('staking_medium_pct', default_num=1.5)[1])
+            st_medium_limit = float(get_game_setting('staking_medium_limit', default_num=180.0)[1])
+            st_pro_pct = float(get_game_setting('staking_pro_pct', default_num=2.0)[1])
+            st_pro_limit = float(get_game_setting('staking_pro_limit', default_num=200.0)[1])
+            
+            with st.form("admin_staking_config_form"):
+                col_cst1, col_cst2, col_cst3 = st.columns(3)
+                with col_cst1:
+                    st.write("<b>PLAN BÁSICO ($5 a $19 USD):</b>", unsafe_allow_html=True)
+                    new_basic_pct = st.number_input("Rendimiento Diario (%) - Básico:", value=st_basic_pct, min_value=0.0, max_value=10.0, format="%.2f", key="new_basic_pct_field")
+                    new_basic_limit = st.number_input("Tope de Ganancia (%) - Básico:", value=st_basic_limit, min_value=100.0, max_value=500.0, format="%.1f", key="new_basic_limit_field")
+                with col_cst2:
+                    st.write("<b>PLAN MEDIO ($20 a $49 USD):</b>", unsafe_allow_html=True)
+                    new_medium_pct = st.number_input("Rendimiento Diario (%) - Medio:", value=st_medium_pct, min_value=0.0, max_value=10.0, format="%.2f", key="new_medium_pct_field")
+                    new_medium_limit = st.number_input("Tope de Ganancia (%) - Medio:", value=st_medium_limit, min_value=100.0, max_value=500.0, format="%.1f", key="new_medium_limit_field")
+                with col_cst3:
+                    st.write("<b>PLAN PRO (>= \$50 USD):</b>", unsafe_allow_html=True)
+                    new_pro_pct = st.number_input("Rendimiento Diario (%) - Pro:", value=st_pro_pct, min_value=0.0, max_value=10.0, format="%.2f", key="new_pro_pct_field")
+                    new_pro_limit = st.number_input("Tope de Ganancia (%) - Pro:", value=st_pro_limit, min_value=100.0, max_value=500.0, format="%.1f", key="new_pro_limit_field")
+                    
+                submit_st_config = st.form_submit_button("💾 Guardar Parámetros de Staking")
+                if submit_st_config:
+                    update_game_setting('staking_basic_pct', '', new_basic_pct)
+                    update_game_setting('staking_basic_limit', '', new_basic_limit)
+                    update_game_setting('staking_medium_pct', '', new_medium_pct)
+                    update_game_setting('staking_medium_limit', '', new_medium_limit)
+                    update_game_setting('staking_pro_pct', '', new_pro_pct)
+                    update_game_setting('staking_pro_limit', '', new_pro_limit)
+                    st.success("✅ ¡Los parámetros de staking se han guardado y actualizado con éxito!")
+                    st.rerun()
 
         with tab_settings_token:
             st.subheader("⚙️ Parámetros Cripto y Cuenta Madre")
