@@ -30,7 +30,7 @@ def clean_html(html_str):
 
 # Configuración de página de Streamlit
 st.set_page_config(
-    page_title="Alianza CryptoWallet v72",
+    page_title="Alianza CryptoWallet v73",
     page_icon="💼",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -456,6 +456,59 @@ def init_db():
             unlocked_at DATETIME DEFAULT CURRENT_TIMESTAMP
         )
     """)
+
+    # --- TABLAS DE LA FINCA SD ---
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS animales_tienda (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            nombre TEXT,
+            precioCOP REAL,
+            gananciaDiariaCOP REAL,
+            duracionDias INTEGER,
+            imagenUrl TEXT,
+            activo INTEGER DEFAULT 1
+        )
+    """)
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS animales_usuarios (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            userId TEXT,
+            animalId INTEGER,
+            fechaCompra DATETIME,
+            fechaVencimiento DATETIME,
+            gananciaAcumuladaSinRecoger REAL DEFAULT 0.0,
+            totalGanado REAL DEFAULT 0.0,
+            proof_image BLOB,
+            estado TEXT DEFAULT 'PENDIENTE',
+            FOREIGN KEY(animalId) REFERENCES animales_tienda(id)
+        )
+    """)
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS recolecciones_finca (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            userId TEXT,
+            animalUsuarioId INTEGER,
+            fecha TEXT,
+            montoSD REAL,
+            estado TEXT DEFAULT 'PENDIENTE',
+            FOREIGN KEY(animalUsuarioId) REFERENCES animales_usuarios(id)
+        )
+    """)
+
+    try:
+        cursor.execute("SELECT COUNT(*) FROM animales_tienda")
+        if cursor.fetchone()[0] == 0:
+            cursor.execute("""
+                INSERT INTO animales_tienda (nombre, precioCOP, gananciaDiariaCOP, duracionDias, imagenUrl, activo) VALUES
+                ('Gallina', 20000.0, 500.0, 120, '🐔', 1),
+                ('Cerdo', 100000.0, 3000.0, 120, '🐷', 1),
+                ('Vaca', 350000.0, 12000.0, 120, '🐮', 1),
+                ('Toro Premium', 1000000.0, 38000.0, 120, '🐂', 1)
+            """)
+    except Exception:
+        pass
 
     # Tabla de cajeros P2P (Módulo Cajeros Humanos)
     cursor.execute("""
@@ -1302,6 +1355,233 @@ def reject_bills_purchase(request_id):
         return True
     conn.close()
     return False
+
+
+# --- SISTEMA DE FINCA SD (GRANJA VIRTUAL) ---
+
+def buy_animal_finca(user_code, animal_id, image_bytes):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT nombre, precioCOP, duracionDias FROM animales_tienda WHERE id = ? AND activo = 1", (animal_id,))
+    animal = cursor.fetchone()
+    if not animal:
+        conn.close()
+        return False, "El animal seleccionado no existe o no está activo."
+    
+    nombre, precio_cop, duracion_dias = animal
+    try:
+        cursor.execute("""
+            INSERT INTO animales_usuarios (userId, animalId, fechaCompra, fechaVencimiento, gananciaAcumuladaSinRecoger, totalGanado, proof_image, estado)
+            VALUES (?, ?, CURRENT_TIMESTAMP, NULL, 0.0, 0.0, ?, 'PENDIENTE')
+        """, (user_code, animal_id, image_bytes))
+        conn.commit()
+        conn.close()
+        return True, f"¡Solicitud de compra para {nombre} enviada con éxito! Esperando aprobación del administrador."
+    except Exception as e:
+        conn.rollback()
+        conn.close()
+        return False, f"Error al procesar la compra: {str(e)}"
+
+def get_pending_animal_purchases():
+    conn = get_db_connection()
+    df = pd.read_sql_query("""
+        SELECT au.id, au.userId, au.animalId, au.proof_image, au.fechaCompra as timestamp,
+               t.nombre, t.precioCOP, u.fullname, u.username
+        FROM animales_usuarios au
+        JOIN animales_tienda t ON au.animalId = t.id
+        JOIN users u ON au.userId = u.wallet_code
+        WHERE au.estado = 'PENDIENTE'
+        ORDER BY au.fechaCompra ASC
+    """, conn)
+    conn.close()
+    return df
+
+def approve_animal_purchase(purchase_id):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT au.userId, au.animalId, t.nombre, t.precioCOP, t.duracionDias, u.fullname
+        FROM animales_usuarios au
+        JOIN animales_tienda t ON au.animalId = t.id
+        JOIN users u ON au.userId = u.wallet_code
+        WHERE au.id = ? AND au.estado = 'PENDIENTE'
+    """, (purchase_id,))
+    res = cursor.fetchone()
+    if res:
+        user_code, animal_id, nombre, precio_cop, duracion_dias, fullname = res
+        try:
+            fecha_compra = datetime.now()
+            fecha_vencimiento = fecha_compra + timedelta(days=duracion_dias)
+            fecha_compra_str = fecha_compra.strftime("%Y-%m-%d %H:%M:%S")
+            fecha_vencimiento_str = fecha_vencimiento.strftime("%Y-%m-%d %H:%M:%S")
+            
+            cursor.execute("""
+                UPDATE animales_usuarios
+                SET estado = 'ACTIVO', fechaCompra = ?, fechaVencimiento = ?
+                WHERE id = ?
+            """, (fecha_compra_str, fecha_vencimiento_str, purchase_id))
+            
+            conn.commit()
+            conn.close()
+            
+            add_notification(
+                user_code,
+                f"🌾 <b>¡Tu {nombre} ha llegado a la Finca!</b> El administrador aprobó tu pago de <b>${precio_cop:,.0f} COP</b>. "
+                f"Tu {nombre} ya está en su corral produciendo ganancias diarias. ¡Recuerda entrar todos los días a recoger!"
+            )
+            return True, f"¡Compra de {nombre} aprobada con éxito!"
+        except Exception as e:
+            conn.rollback()
+            conn.close()
+            return False, f"Error al aprobar compra: {str(e)}"
+    conn.close()
+    return False, "No se encontró la solicitud de compra."
+
+def reject_animal_purchase(purchase_id):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT au.userId, t.nombre, t.precioCOP
+        FROM animales_usuarios au
+        JOIN animales_tienda t ON au.animalId = t.id
+        WHERE au.id = ? AND au.estado = 'PENDIENTE'
+    """, (purchase_id,))
+    res = cursor.fetchone()
+    if res:
+        user_code, nombre, precio_cop = res
+        try:
+            cursor.execute("UPDATE animales_usuarios SET estado = 'RECHAZADO' WHERE id = ?", (purchase_id,))
+            conn.commit()
+            conn.close()
+            add_notification(
+                user_code,
+                f"🔴 <b>Compra de animal rechazada.</b> Tu comprobante de pago por <b>${precio_cop:,.0f} COP</b> para adquirir un(a) <b>{nombre}</b> fue rechazado "
+                f"debido a inconsistencias. Por favor verifica e intenta de nuevo."
+            )
+            return True, "Compra rechazada."
+        except Exception as e:
+            conn.rollback()
+            conn.close()
+            return False, f"Error al procesar: {str(e)}"
+    conn.close()
+    return False, "No se encontró la solicitud."
+
+def refresh_finca_earnings(user_code):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    today_str = datetime.now().strftime("%Y-%m-%d")
+    try:
+        cursor.execute("""
+            UPDATE recolecciones_finca
+            SET estado = 'PERDIDO'
+            WHERE userId = ? AND estado = 'PENDIENTE' AND fecha < ?
+        """, (user_code, today_str))
+        conn.commit()
+    except Exception:
+        pass
+        
+    try:
+        cursor.execute("""
+            SELECT au.id, au.fechaCompra, au.fechaVencimiento, t.gananciaDiariaCOP, t.nombre
+            FROM animales_usuarios au
+            JOIN animales_tienda t ON au.animalId = t.id
+            WHERE au.userId = ? AND au.estado = 'ACTIVO'
+        """, (user_code,))
+        active_animals = cursor.fetchall()
+    except Exception:
+        active_animals = []
+        
+    token_price_cop_val = get_token_settings()['price_usd'] * fetch_usd_cop_rate()
+    
+    for au_id, fecha_compra_str, fecha_venc_str, ganancia_cop, nombre in active_animals:
+        try:
+            start_date = datetime.strptime(fecha_compra_str, "%Y-%m-%d %H:%M:%S").date() + timedelta(days=1)
+            end_date = datetime.strptime(fecha_venc_str, "%Y-%m-%d %H:%M:%S").date()
+            today_date = datetime.now().date()
+            
+            if today_date > end_date:
+                cursor.execute("UPDATE animales_usuarios SET estado = 'VENCIDO' WHERE id = ?", (au_id,))
+                conn.commit()
+                add_notification(
+                    user_code,
+                    f"🥀 <b>¡Tu {nombre} ha envejecido!</b> Ha completado sus 120 días de producción en tu Finca. "
+                    f"¡Gracias por cuidarla! Ya puedes adquirir un nuevo ejemplar en la tienda para seguir ganando."
+                )
+                continue
+                
+            current_loop_date = start_date
+            while current_loop_date <= today_date:
+                loop_date_str = current_loop_date.strftime("%Y-%m-%d")
+                cursor.execute("SELECT 1 FROM recolecciones_finca WHERE animalUsuarioId = ? AND fecha = ?", (au_id, loop_date_str))
+                if not cursor.fetchone():
+                    monto_sd = ganancia_cop / token_price_cop_val if token_price_cop_val > 0 else 0.0
+                    status = 'PENDIENTE' if loop_date_str == today_str else 'PERDIDO'
+                    cursor.execute("""
+                        INSERT INTO recolecciones_finca (userId, animalUsuarioId, fecha, montoSD, estado)
+                        VALUES (?, ?, ?, ?, ?)
+                    """, (user_code, au_id, loop_date_str, monto_sd, status))
+                current_loop_date += timedelta(days=1)
+            conn.commit()
+        except Exception:
+            pass
+    conn.close()
+
+def collect_finca_earnings(user_code):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT SUM(montoSD) FROM recolecciones_finca WHERE userId = ? AND estado = 'PENDIENTE'", (user_code,))
+        total_sd_row = cursor.fetchone()
+        total_sd = total_sd_row[0] if total_sd_row and total_sd_row[0] is not None else 0.0
+        
+        if total_sd <= 0:
+            conn.close()
+            return False, "No tienes ganancias de Finca pendientes por recoger hoy. ¡Vuelve mañana!"
+            
+        cursor.execute("SELECT balance FROM users WHERE wallet_code = '99999'")
+        admin_bal = cursor.fetchone()
+        admin_balance = admin_bal[0] if admin_bal else 0.0
+        
+        if admin_balance < total_sd:
+            conn.close()
+            return False, "La bóveda del sistema no dispone de fondos suficientes en este momento para pagar la recolección."
+            
+        cursor.execute("UPDATE users SET balance = balance - ? WHERE wallet_code = '99999'", (total_sd,))
+        cursor.execute("UPDATE users SET balance = balance + ? WHERE wallet_code = ?", (total_sd, user_code))
+        cursor.execute("""
+            INSERT INTO transactions (sender_code, receiver_code, amount)
+            VALUES ('99999_FINCA_REWARD', ?, ?)
+        """, (user_code, total_sd))
+        
+        cursor.execute("""
+            UPDATE recolecciones_finca
+            SET estado = 'RECOGIDO'
+            WHERE userId = ? AND estado = 'PENDIENTE'
+        """, (user_code,))
+        
+        cursor.execute("""
+            SELECT animalUsuarioId, SUM(montoSD) FROM recolecciones_finca
+            WHERE userId = ? AND estado = 'RECOGIDO'
+            GROUP BY animalUsuarioId
+        """, (user_code,))
+        earned_per_animal = cursor.fetchall()
+        for au_id, amt in earned_per_animal:
+            cursor.execute("UPDATE animales_usuarios SET totalGanado = ? WHERE id = ?", (amt, au_id))
+            
+        conn.commit()
+        conn.close()
+        
+        add_notification(
+            user_code,
+            f"🌾 <b>¡Cosecha Recogida!</b> Has recolectado un total de <b>{format_num(total_sd)} SD</b> "
+            f"de las producciones de tus animales de hoy. Los tokens han sido depositados en tu balance."
+        )
+        return True, f"¡Éxito! Has recolectado {format_num(total_sd)} SD de tu granja virtual."
+    except Exception as e:
+        conn.rollback()
+        conn.close()
+        return False, f"Error al recolectar ganancias: {str(e)}"
+
 
 
 # --- SISTEMA DE CAJEROS HUMANOS P2P ---
@@ -3817,7 +4097,7 @@ st.markdown(f"""
 
 if not st.session_state.logged_in:
     st.sidebar.title("🔐 Alianza CryptoWallet")
-    st.sidebar.markdown("<div style='background-color: #1e293b; padding: 6px 12px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 15px; text-align: center;'><span style='color: #ffd700; font-size: 0.85rem; font-weight: bold;'>🚀 Versión de la App: v72</span></div>", unsafe_allow_html=True)
+    st.sidebar.markdown("<div style='background-color: #1e293b; padding: 6px 12px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 15px; text-align: center;'><span style='color: #ffd700; font-size: 0.85rem; font-weight: bold;'>🚀 Versión de la App: v73</span></div>", unsafe_allow_html=True)
     menu = st.sidebar.selectbox("Seleccione una opción", ["Iniciar Sesión", "Registrarse"])
     
     if menu == "Iniciar Sesión":
@@ -3885,7 +4165,7 @@ if not st.session_state.logged_in:
 else:
     # Sidebar de usuario conectado con toques dorados
     st.sidebar.markdown(f"<h2 class='golden-title'>👋 {st.session_state.fullname}</h2>", unsafe_allow_html=True)
-    st.sidebar.markdown("<div style='background-color: #1e293b; padding: 6px 12px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 15px; text-align: center;'><span style='color: #ffd700; font-size: 0.85rem; font-weight: bold;'>🚀 Versión de la App: v72</span></div>", unsafe_allow_html=True)
+    st.sidebar.markdown("<div style='background-color: #1e293b; padding: 6px 12px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 15px; text-align: center;'><span style='color: #ffd700; font-size: 0.85rem; font-weight: bold;'>🚀 Versión de la App: v73</span></div>", unsafe_allow_html=True)
     st.sidebar.markdown(f"**Billetera ID (Código):** `{st.session_state.wallet_code}`")
     
     # Obtener el número de notificaciones pendientes
@@ -3915,7 +4195,7 @@ else:
     balance_usd = balance * token_price_usd
     balance_cop_equiv = balance_usd * usd_cop
     
-    nav_options = ["🏠 Inicio y Balance", "💸 Enviar SD", "📥 Comprar SD", "🔄 Swap y Retiros", "⛏️ Minería SIAD", "🛍️ Tienda Alianza", "🎮 Juegos", "🚚 Mensajería Alianza", "👥 Cajeros P2P", "👥 Mis Referidos", notif_label, "👤 Mi Perfil", "🛡️ Términos y Seguridad"]
+    nav_options = ["🏠 Inicio y Balance", "💸 Enviar SD", "📥 Comprar SD", "🔄 Swap y Retiros", "⛏️ Minería SIAD", "🛍️ Tienda Alianza", "🎮 Juegos", "🚚 Mensajería Alianza", "👥 Cajeros P2P", "🌾 Mi Finca SD", "👥 Mis Referidos", notif_label, "👤 Mi Perfil", "🛡️ Términos y Seguridad"]
     
     # El checkbox de Modo Propietario ahora es exclusivo para la cuenta del propietario de la app (@admin) o wallet_code '99999'
     is_owner_user = (st.session_state.username == 'admin' or st.session_state.wallet_code == '99999' or st.session_state.is_admin)
@@ -6438,6 +6718,255 @@ else:
                         else:
                             st.info("✅ Ya has enviado tu calificación para esta transacción.")
 
+    # --- SECCIÓN: MI FINCA SD ---
+    elif choice == "🌾 Mi Finca SD":
+        st.markdown("<h1 class='golden-title'>🌾 Mi Finca SD - Granja Virtual</h1>", unsafe_allow_html=True)
+        st.write("Cría animales de granja que producen rentabilidad diaria en tokens SIAD (SD). ¡Recoge tus recompensas todos los días antes de que expiren!")
+        
+        # Refresh earnings for today and burn uncollected past earnings
+        refresh_finca_earnings(st.session_state.wallet_code)
+        
+        # Get total pending rewards (Huevos por recoger)
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT SUM(montoSD) FROM recolecciones_finca WHERE userId = ? AND estado = 'PENDIENTE'", (st.session_state.wallet_code,))
+        pending_total_row = cursor.fetchone()
+        pending_total = pending_total_row[0] if pending_total_row and pending_total_row[0] is not None else 0.0
+        conn.close()
+        
+        # Visual Farm Banner/Header
+        st.markdown(f"""
+        <div style="background: linear-gradient(135deg, #091a0c 0%, #0d0d11 100%) !important; border: 2.5px solid #10b981; border-radius: 12px; padding: 20px; text-align: center; margin-bottom: 20px; box-shadow: 0 4px 15px rgba(16,185,129,0.25);">
+            <div style="font-size: 3.5rem; margin-bottom: 5px;">🏡🚜🐔🐷🐮🐂🌾</div>
+            <h3 style="color:#10b981; margin:0; font-weight:900; letter-spacing:0.05em; font-size:1.4rem;">🌾 TU GRANJA VIRTUAL ALIANZA</h3>
+            <p style="font-size:0.85rem; color:#a1a1aa; margin-top:5px; margin-bottom:15px;">Cuida tus animales y recolecta su producción diaria. El pool te premia cada 24 horas.</p>
+            <div style="background-color: #060608; border: 1.5px dashed #ffd700; border-radius: 10px; padding: 15px; display:inline-block; min-width:280px; box-shadow: 0 4px 10px rgba(0,0,0,0.5);">
+                <span style="color:#ffd700; font-size:0.85rem; font-weight:bold; text-transform:uppercase; letter-spacing:0.05em; display:block;">🥚 Huevos / Cosecha por recoger:</span>
+                <span style="color:#10b981; font-weight:900; font-size:1.9rem; display:block; margin: 5px 0;">{format_num(pending_total)} SD</span>
+                <span style="color:#888899; font-size:0.75rem; display:block;">Equivale aprox. a ${(pending_total * token_price_cop):,.0f} COP</span>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        col_rec_btn, col_rec_info = st.columns([1, 1])
+        with col_rec_btn:
+            if pending_total > 0:
+                if st.button("🧺 RECOGER GANANCIAS DE HOY", use_container_width=True, key="collect_finca_earnings_direct"):
+                    success, msg = collect_finca_earnings(st.session_state.wallet_code)
+                    if success:
+                        st.balloons()
+                        st.success(msg)
+                        st.rerun()
+                    else:
+                        st.error(msg)
+            else:
+                st.button("🧺 Recoger Ganancias (Nada Pendiente)", disabled=True, use_container_width=True)
+        with col_rec_info:
+            st.info("⚠️ **REGLA DE RETENCIÓN:** Tienes hasta las 23:59:59 del día de hoy para recoger la producción de tus animales. Si no entras a recoger en 24 horas, las ganancias se perderán (se quemarán) permanentemente.")
+
+        # Finca tab layout
+        tab_f_mis, tab_f_tienda, tab_f_hist = st.tabs([
+            "🌾 Mi Finca y Corrales",
+            "🛒 Comprar Animales",
+            "📋 Historial de Producción"
+        ])
+        
+        with tab_f_mis:
+            st.subheader("🐔 Mis Animales Activos en Corral")
+            st.write("Aquí están tus animales que se encuentran produciendo rentabilidad en tiempo real:")
+            
+            conn_anim = get_db_connection()
+            user_animals = pd.read_sql_query("""
+                SELECT au.id, au.fechaCompra, au.fechaVencimiento, au.totalGanado, t.nombre, t.precioCOP, t.gananciaDiariaCOP, t.imagenUrl
+                FROM animales_usuarios au
+                JOIN animales_tienda t ON au.animalId = t.id
+                WHERE au.userId = ? AND au.estado = 'ACTIVO'
+                ORDER BY au.fechaCompra DESC
+            """, conn_anim, params=(st.session_state.wallet_code,))
+            conn_anim.close()
+            
+            if len(user_animals) == 0:
+                st.info("ℹ️ No tienes ningún animal activo en tus corrales actualmente. Visita la **🛒 Tienda de Animales** para adquirir tu primer ejemplar.")
+            else:
+                col_an_cards = st.columns(2)
+                for idx_au, row_au in user_animals.iterrows():
+                    col_idx = idx_au % 2
+                    
+                    try:
+                        venc_dt = datetime.strptime(row_au['fechaVencimiento'], "%Y-%m-%d %H:%M:%S")
+                        now_dt = datetime.now()
+                        days_rem = max((venc_dt - now_dt).days, 0)
+                    except Exception:
+                        days_rem = 120
+                        
+                    with col_an_cards[col_idx]:
+                        st.markdown(f"""
+                        <div class="card" style="border-left: 4px solid #10b981; background: linear-gradient(135deg, #0d0d11 0%, #06180f 100%) !important; padding: 15px; margin-bottom:15px;">
+                            <div style="display:flex; align-items:center; gap:15px;">
+                                <div style="font-size:3.0rem; background-color:#10b98118; padding:10px; border-radius:10px; border: 1.5px solid #10b98144;">
+                                    {row_au['imagenUrl']}
+                                </div>
+                                <div style="flex-grow:1;">
+                                    <h4 style="color:#10b981; margin:0; font-weight:bold; font-size:1.25rem;">{row_au['nombre']} Activo(a)</h4>
+                                    <p style="font-size:0.8rem; color:#a1a1aa; margin:2px 0;"><b>Adquirido:</b> {row_au['fechaCompra']}</p>
+                                    <p style="font-size:0.8rem; color:#a1a1aa; margin:2px 0;"><b>Expira en:</b> {days_rem} días (Vence: {row_au['fechaVencimiento'].split(' ')[0]})</p>
+                                </div>
+                            </div>
+                            <hr style="border-color:#10b98120; margin:10px 0;">
+                            <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; text-align:center; font-size:0.85rem;">
+                                <div style="background-color:#070709; padding:8px; border-radius:6px; border:1px solid #10b98115;">
+                                    <span style="color:#a1a1aa; display:block; font-size:0.75rem;">Producción Diaria:</span>
+                                    <span style="color:#10b981; font-weight:bold; font-size:1.0rem;">+{format_num(row_au['gananciaDiariaCOP']/token_price_cop)} SD</span>
+                                    <span style="color:#888899; display:block; font-size:0.7rem;">(${row_au['gananciaDiariaCOP']:,.0f} COP)</span>
+                                </div>
+                                <div style="background-color:#070709; padding:8px; border-radius:6px; border:1px solid #10b98115;">
+                                    <span style="color:#a1a1aa; display:block; font-size:0.75rem;">Cosecha Total Recogida:</span>
+                                    <span style="color:#ffd700; font-weight:bold; font-size:1.0rem;">{format_num(row_au['totalGanado'])} SD</span>
+                                    <span style="color:#888899; display:block; font-size:0.7rem;">(${format_num(row_au['totalGanado']*token_price_cop)} COP)</span>
+                                </div>
+                            </div>
+                        </div>
+                        """, unsafe_allow_html=True)
+            
+            # Expired/Vencidos
+            conn_v = get_db_connection()
+            expired_animals = pd.read_sql_query("""
+                SELECT au.fechaCompra, au.fechaVencimiento, au.totalGanado, t.nombre, t.imagenUrl
+                FROM animales_usuarios au
+                JOIN animales_tienda t ON au.animalId = t.id
+                WHERE au.userId = ? AND au.estado = 'VENCIDO'
+                ORDER BY au.fechaVencimiento DESC
+            """, conn_v, params=(st.session_state.wallet_code,))
+            conn_v.close()
+            
+            if len(expired_animals) > 0:
+                st.markdown("---")
+                st.subheader("🥀 Animales Envejecidos (Historial Jubilados)")
+                for idx_e, row_e in expired_animals.iterrows():
+                    st.markdown(f"""
+                    <div class="card" style="border-left: 3px solid #71717a; filter: grayscale(1); padding:10px 15px; margin-bottom:10px;">
+                        <span style="float:right; font-size:0.8rem; color:#888899;">Jubilado(a) el: {row_e['fechaVencimiento'].split(' ')[0]}</span>
+                        <p style="margin:0; font-size:0.95rem; color:#ffffff;"><b>{row_e['imagenUrl']} {row_e['nombre']}</b> - Produjo en total <b>{format_num(row_e['totalGanado'])} SD</b> durante sus 120 días.</p>
+                    </div>
+                    """, unsafe_allow_html=True)
+
+        with tab_f_tienda:
+            st.subheader("🛒 Tienda Finca Alianza: Compra Animales")
+            st.write("Adquiere animales virtuales para poblar tus corrales. El pago se procesa en COP y una vez validado, se te asignará tu animal para que empiece a producir de inmediato.")
+            
+            conn_shop = get_db_connection()
+            store_animals = pd.read_sql_query("SELECT id, nombre, precioCOP, gananciaDiariaCOP, duracionDias, imagenUrl FROM animales_tienda WHERE activo = 1", conn_shop)
+            conn_shop.close()
+            
+            if len(store_animals) == 0:
+                st.info("No hay animales disponibles para la venta en este momento.")
+            else:
+                col_st_cards = st.columns(2)
+                for idx_st, row_st in store_animals.iterrows():
+                    col_idx = idx_st % 2
+                    
+                    price = row_st['precioCOP']
+                    daily_y = row_st['gananciaDiariaCOP']
+                    total_roi_days = int(price / daily_y) if daily_y > 0 else 0
+                    total_return_cop = daily_y * row_st['duracionDias']
+                    
+                    with col_st_cards[col_idx]:
+                        st.markdown(f"""
+                        <div class="card" style="border-color: #ffd700; min-height: 250px; display: flex; flex-direction: column; justify-content: space-between; padding: 18px;">
+                            <div>
+                                <div style="display:flex; align-items:center; gap:12px; margin-bottom:10px;">
+                                    <span style="font-size:2.8rem; background-color:#ffd70010; padding:8px; border-radius:8px; border:1px solid #ffd70022;">{row_st['imagenUrl']}</span>
+                                    <div>
+                                        <h4 style="color:#ffd700; margin:0; font-size:1.25rem; font-weight:bold;">{row_st['nombre']}</h4>
+                                        <span style="font-size:0.8rem; color:#10b981; font-weight:bold;">💵 Ganancia: ${daily_y:,.0f} COP/Día en SD</span>
+                                    </div>
+                                </div>
+                                <ul style="padding-left:18px; font-size:0.85rem; color:#e2e8f0; line-height:1.35rem; margin:10px 0;">
+                                    <li><b>Costo de ejemplar:</b> ${price:,.0f} COP</li>
+                                    <li><b>Duración de producción:</b> {row_st['duracionDias']} días</li>
+                                    <li><b>Retorno de inversión (ROI):</b> {total_roi_days} días</li>
+                                    <li><b>Ganancia Total Estimada:</b> ${total_return_cop:,.0f} COP en tokens SD</li>
+                                </ul>
+                            </div>
+                        </div>
+                        """, unsafe_allow_html=True)
+                        
+                        # Form expander to upload Nequi receipt
+                        with st.expander(f"🛒 Adquirir {row_st['nombre']} (${price:,.0f} COP)"):
+                            st.write(f"<b>Paso 1:</b> Transfiere exactamente <b>${price:,.0f} COP</b> a nuestra cuenta Nequi:")
+                            st.code(token['nequi_number'], language="text")
+                            st.write("<b>Paso 2:</b> Toma un pantallazo de tu comprobante y súbelo aquí:")
+                            
+                            with st.form(f"finca_buy_form_{row_st['id']}"):
+                                f_file = st.file_uploader("Adjunta captura de transferencia Nequi (JPG/PNG):", type=["jpg", "jpeg", "png"], key=f"f_file_u_{row_st['id']}")
+                                submit_f_buy = st.form_submit_button("Confirmar Pago y Solicitar Animal")
+                                
+                                if submit_f_buy:
+                                    if not f_file:
+                                        st.error("⚠️ Debes adjuntar la imagen del comprobante para verificar tu compra.")
+                                    else:
+                                        try:
+                                            img_bytes = f_file.read()
+                                            success, msg = buy_animal_finca(st.session_state.wallet_code, row_st['id'], img_bytes)
+                                            if success:
+                                                st.balloons()
+                                                st.success(msg)
+                                            else:
+                                                st.error(msg)
+                                        except Exception as e_buy:
+                                            st.error(f"Error procesando la solicitud: {str(e_buy)}")
+                                            
+        with tab_f_hist:
+            st.subheader("📋 Mi Historial de Producción y Cosecha")
+            st.write("Consulta el registro completo de tus animales adquiridos, las cosechas de SD reclamadas y las pérdidas por inactividad:")
+            
+            conn_h_f = get_db_connection()
+            
+            # 1. Compras de animales
+            st.write("<b>🐾 Mis Compras de Finca:</b>", unsafe_allow_html=True)
+            user_purch_df = pd.read_sql_query("""
+                SELECT au.id, t.nombre, t.precioCOP, au.fechaCompra as timestamp, au.estado
+                FROM animales_usuarios au
+                JOIN animales_tienda t ON au.animalId = t.id
+                WHERE au.userId = ?
+                ORDER BY au.fechaCompra DESC
+            """, conn_h_f, params=(st.session_state.wallet_code,))
+            
+            if len(user_purch_df) == 0:
+                st.info("Aún no tienes compras registradas.")
+            else:
+                user_purch_df_disp = user_purch_df.copy()
+                user_purch_df_disp['Precio (COP)'] = user_purch_df_disp['precioCOP'].apply(lambda x: f"${x:,.0f} COP")
+                user_purch_df_disp['Estado'] = user_purch_df_disp['estado'].apply(
+                    lambda e: "🟡 Pendiente" if e == 'PENDIENTE' else ("🟢 Activo" if e == 'ACTIVO' else ("🔴 Rechazado" if e == 'RECHAZADO' else "🥀 Vencido"))
+                )
+                user_purch_df_disp = user_purch_df_disp[['timestamp', 'nombre', 'Precio (COP)', 'Estado']]
+                user_purch_df_disp.columns = ['Fecha/Hora', 'Ejemplar', 'Monto COP', 'Estado del Corral']
+                st.dataframe(user_purch_df_disp, use_container_width=True)
+                
+            st.write("<b>🧺 Historial de Recolección Diaria:</b>", unsafe_allow_html=True)
+            user_recs_df = pd.read_sql_query("""
+                SELECT r.fecha, t.nombre, r.montoSD, r.estado
+                FROM recolecciones_finca r
+                JOIN animales_usuarios au ON r.animalUsuarioId = au.id
+                JOIN animales_tienda t ON au.animalId = t.id
+                WHERE r.userId = ?
+                ORDER BY r.fecha DESC LIMIT 30
+            """, conn_h_f, params=(st.session_state.wallet_code,))
+            conn_h_f.close()
+            
+            if len(user_recs_df) == 0:
+                st.info("Aún no tienes registros de recolecciones. Las ganancias comenzarán a acumularse a las 00:00 del día siguiente de activarse tu primer animal.")
+            else:
+                user_recs_df_disp = user_recs_df.copy()
+                user_recs_df_disp['Ganancia (SD)'] = user_recs_df_disp['montoSD'].apply(lambda x: f"{format_num(x)} SD")
+                user_recs_df_disp['Estado de Cosecha'] = user_recs_df_disp['estado'].apply(
+                    lambda e: "🟢 Cosechado / Recogido" if e == 'RECOGIDO' else ("🔴 Quemado / Perdido" if e == 'PERDIDO' else "⏳ Pendiente de Recogida")
+                )
+                user_recs_df_disp = user_recs_df_disp[['fecha', 'nombre', 'Ganancia (SD)', 'Estado de Cosecha']]
+                user_recs_df_disp.columns = ['Fecha Cosecha', 'Ejemplar', 'Monto SD', 'Estado']
+                st.dataframe(user_recs_df_disp, use_container_width=True)
+
     # --- SECCIÓN: MIS REFERIDOS (ÁRBOL GENEALÓGICO) ---
     elif choice == "👥 Mis Referidos":
 
@@ -6997,7 +7526,16 @@ else:
         pending_disputes_count = cursor_disp.fetchone()[0] or 0
         conn_disp.close()
 
-        tab_mint, tab_claims, tab_bills_claims, tab_withdraws, tab_store, tab_store_catalog, tab_games_control, tab_staking_admin, tab_p2p_admin, tab_referrals, tab_fees, tab_messenger, tab_broadcast, tab_settings_token = st.tabs([
+        conn_fa = get_db_connection()
+        cursor_fa = conn_fa.cursor()
+        try:
+            cursor_fa.execute("SELECT COUNT(*) FROM animales_usuarios WHERE estado = 'PENDIENTE'")
+            pending_finca_purchases_count = cursor_fa.fetchone()[0] or 0
+        except Exception:
+            pending_finca_purchases_count = 0
+        conn_fa.close()
+
+        tab_mint, tab_claims, tab_bills_claims, tab_withdraws, tab_store, tab_store_catalog, tab_games_control, tab_staking_admin, tab_p2p_admin, tab_finca_admin, tab_referrals, tab_fees, tab_messenger, tab_broadcast, tab_settings_token = st.tabs([
             "💸 Emisión de Monedas", 
             f"📥 Comprobantes por Confirmar ({pending_claims_count})", 
             f"🪙 Solicitudes BILLS -> SD ({pending_bills_count})",
@@ -7007,6 +7545,7 @@ else:
             "🎮 Control de Juegos",
             "⛏️ Control de Staking/Minería",
             f"👥 Gestión P2P / Cajeros ({pending_disputes_count})",
+            f"🌾 Gestión Finca SD ({pending_finca_purchases_count})",
             f"👥 Comisiones de Referidos ({pending_rewards_count})",
             "📊 Comisiones de Plataforma",
             "🚚 Control de Mensajería",
@@ -8176,6 +8715,246 @@ else:
                     update_game_setting('staking_pro_limit', '', new_pro_limit)
                     st.success("✅ ¡Los parámetros de staking se han guardado y actualizado con éxito!")
                     st.rerun()
+
+        with tab_finca_admin:
+            st.subheader("🌾 Consola de Administración de Finca SD")
+            st.write("Controla la tienda de animales, aprueba compras de corrales, visualiza el historial de recolecciones y consulta métricas de rentabilidad.")
+            
+            # Fetch Finca metrics
+            conn_fa = get_db_connection()
+            cursor_fa = conn_fa.cursor()
+            try:
+                # Approved sales COP
+                cursor_fa.execute("SELECT SUM(t.precioCOP) FROM animales_usuarios au JOIN animales_tienda t ON au.animalId = t.id WHERE au.estado = 'ACTIVO'")
+                total_f_sales = cursor_fa.fetchone()[0] or 0.0
+                
+                # Total paid in SD
+                cursor_fa.execute("SELECT SUM(montoSD) FROM recolecciones_finca WHERE estado = 'RECOGIDO'")
+                total_f_paid_sd = cursor_fa.fetchone()[0] or 0.0
+            except Exception:
+                total_f_sales = 0.0
+                total_f_paid_sd = 0.0
+            conn_fa.close()
+            
+            # USD to COP
+            token_price_cop_val = get_token_settings()['price_usd'] * fetch_usd_cop_rate()
+            total_f_paid_cop = total_f_paid_sd * token_price_cop_val
+            net_f_profit = total_f_sales - total_f_paid_cop
+            
+            # Metrics Cards
+            col_fa1, col_fa2, col_fa3 = st.columns(3)
+            with col_fa1:
+                st.markdown(f"""
+                <div class="card" style="border-left: 5px solid #10b981;">
+                    <div class="metric-title">Ventas Totales Finca (Approved)</div>
+                    <div class="metric-value" style="color: #10b981;">${total_f_sales:,.0f} COP</div>
+                    <div class="metric-sub">Capital recaudado por compras</div>
+                </div>
+                """, unsafe_allow_html=True)
+            with col_fa2:
+                st.markdown(f"""
+                <div class="card" style="border-left: 5px solid #ffd700;">
+                    <div class="metric-title">Total Entregado / Pagado SD</div>
+                    <div class="metric-value" style="color: #ffd700;">{format_num(total_f_paid_sd)} SD</div>
+                    <div class="metric-sub">Equivalente a: ${total_f_paid_cop:,.0f} COP</div>
+                </div>
+                """, unsafe_allow_html=True)
+            with col_fa3:
+                border_net = "#10b981" if net_f_profit >= 0 else "#ef4444"
+                st.markdown(f"""
+                <div class="card" style="border-left: 5px solid {border_net};">
+                    <div class="metric-title">Ganancia Neta Plataforma</div>
+                    <div class="metric-value" style="color: {border_net};">${net_f_profit:,.0f} COP</div>
+                    <div class="metric-sub">COP Recaudado - SD Pagado en COP</div>
+                </div>
+                """, unsafe_allow_html=True)
+                
+            st.markdown("---")
+            
+            # Sub-tabs inside Finca Admin
+            tab_fa_claims, tab_fa_crud, tab_fa_audit = st.tabs([
+                f"📥 Confirmar Compras ({pending_finca_purchases_count})",
+                "🛒 Catálogo / CRUD Tienda",
+                "📊 Auditoría y Listados"
+            ])
+            
+            with tab_fa_claims:
+                st.subheader("📥 Confirmar Compras de Animales de Corral")
+                st.write("Revisa los recibos de pago subidos por los usuarios para comprar gallinas, vacas, cerdos o toros. Valida la transferencia en tu Nequi antes de aprobar.")
+                
+                pending_animals_df = get_pending_animal_purchases()
+                if len(pending_animals_df) == 0:
+                    st.info("🎉 ¡Al día! No hay comprobantes de compra de finca pendientes de verificación.")
+                else:
+                    for idx, row in pending_animals_df.iterrows():
+                        with st.expander(f"📥 Solicitud #{row['id']} - {row['nombre']} - Usuario: {row['fullname']} (@{row['username']})"):
+                            col_req_inf, col_req_img = st.columns([1, 1])
+                            with col_req_inf:
+                                st.markdown(f"""
+                                <div class="card" style="border-left: 3px solid #ffd700;">
+                                    <p><b>ID Registro:</b> #{row['id']}</p>
+                                    <p><b>Usuario:</b> {row['fullname']} (@{row['username']})</p>
+                                    <p><b>Billetera ID:</b> <code style="color:#10b981;">{row['userId']}</code></p>
+                                    <p><b>Animal Solicitado:</b> <span style="color:#10b981; font-weight:bold;">{row['nombre']}</span></p>
+                                    <p><b>Monto COP Transferido:</b> <span style="color:#ffd700; font-weight:bold;">${row['precioCOP']:,.0f} COP</span></p>
+                                    <p><b>Fecha de Solicitud:</b> {row['timestamp']}</p>
+                                </div>
+                                """, unsafe_allow_html=True)
+                                
+                                col_f_app, col_f_rej = st.columns(2)
+                                with col_f_app:
+                                    if st.button("👍 Confirmar y Asignar Animal", key=f"f_app_{row['id']}", use_container_width=True):
+                                        success, msg = approve_animal_purchase(row['id'])
+                                        if success:
+                                            st.success(msg)
+                                            st.balloons()
+                                            st.rerun()
+                                        else:
+                                            st.error(msg)
+                                with col_f_rej:
+                                    if st.button("❌ Rechazar Solicitud", key=f"f_rej_{row['id']}", use_container_width=True):
+                                        success, msg = reject_animal_purchase(row['id'])
+                                        if success:
+                                            st.warning(msg)
+                                            st.rerun()
+                                        else:
+                                            st.error(msg)
+                            with col_req_img:
+                                st.subheader("📷 Comprobante Recibido")
+                                try:
+                                    st.image(row['proof_image'], caption="Foto del recibo", use_container_width=True)
+                                except Exception as e_img:
+                                    st.error(f"No se pudo cargar la imagen: {str(e_img)}")
+                                    
+            with tab_fa_crud:
+                st.subheader("🛒 CRUD de Tienda de Animales de Corral")
+                st.write("Modifica los precios en COP, la ganancia diaria garantizada, la duración y la visual de tus animales en venta.")
+                
+                conn_c = get_db_connection()
+                try:
+                    all_animals = pd.read_sql_query("SELECT id, nombre, precioCOP, gananciaDiariaCOP, duracionDias, imagenUrl, activo FROM animales_tienda", conn_c)
+                except Exception:
+                    all_animals = pd.DataFrame()
+                conn_c.close()
+                
+                if len(all_animals) > 0:
+                    for idx_a, row_a in all_animals.iterrows():
+                        a_id = row_a['id']
+                        a_name = row_a['nombre']
+                        a_price = float(row_a['precioCOP'])
+                        a_yield = float(row_a['gananciaDiariaCOP'])
+                        a_dur = int(row_a['duracionDias'])
+                        a_img = row_a['imagenUrl']
+                        a_act = int(row_a['activo'])
+                        
+                        state_label = "🟢 Activo" if a_act == 1 else "🔴 Pausado/Inactivo"
+                        with st.expander(f"✏️ Editar: {row_a['imagenUrl']} {a_name} ({state_label})"):
+                            with st.form(f"edit_animal_tienda_{a_id}"):
+                                col_ae1, col_ae2 = st.columns(2)
+                                with col_ae1:
+                                    edit_a_name = st.text_input("Nombre del Animal:", value=a_name)
+                                    edit_a_price = st.number_input("Precio de Compra (COP):", value=a_price, min_value=1000.0, step=1000.0)
+                                    edit_a_yield = st.number_input("Ganancia Diaria (COP en SD):", value=a_yield, min_value=10.0, step=100.0)
+                                with col_ae2:
+                                    edit_a_dur = st.number_input("Duración de producción (Días):", value=a_dur, min_value=1)
+                                    edit_a_img = st.text_input("Emoji o URL de Imagen:", value=a_img)
+                                    edit_a_active = st.selectbox("Estado de la venta:", ["Activo / Visible", "Pausado / Oculto"], index=0 if a_act == 1 else 1)
+                                    
+                                submit_edit_animal = st.form_submit_button(f"💾 Guardar Ajustes de {a_name}")
+                                if submit_edit_animal:
+                                    conn_u = get_db_connection()
+                                    cursor_u = conn_u.cursor()
+                                    act_val = 1 if "Activo" in edit_a_active else 0
+                                    cursor_u.execute("""
+                                        UPDATE animales_tienda
+                                        SET nombre = ?, precioCOP = ?, gananciaDiariaCOP = ?, duracionDias = ?, imagenUrl = ?, activo = ?
+                                        WHERE id = ?
+                                    """, (edit_a_name, edit_a_price, edit_a_yield, edit_a_dur, edit_a_img, act_val, a_id))
+                                    conn_u.commit()
+                                    conn_u.close()
+                                    st.success(f"✅ ¡Se han actualizado los ajustes para '{edit_a_name}'!")
+                                    st.rerun()
+                                    
+                st.markdown("---")
+                st.subheader("➕ Agregar Nuevo Animal al Catálogo")
+                with st.form("add_new_animal_to_tienda_form"):
+                    col_an1, col_an2 = st.columns(2)
+                    with col_an1:
+                        new_a_name = st.text_input("Nombre del Nuevo Animal:", placeholder="Ej. Oveja")
+                        new_a_price = st.number_input("Precio de Compra (COP):", value=50000.0, min_value=1000.0, step=5000.0)
+                        new_a_yield = st.number_input("Ganancia Diaria (COP en SD):", value=1500.0, min_value=10.0, step=100.0)
+                    with col_an2:
+                        new_a_dur = st.number_input("Duración de producción (Días):", value=120, min_value=1)
+                        new_a_img = st.text_input("Emoji o URL de Imagen:", placeholder="Ej. 🐑")
+                        new_a_active = st.selectbox("Estado de la venta inicial:", ["Activo / Visible", "Pausado / Oculto"], index=0)
+                        
+                    submit_add_animal = st.form_submit_button("➕ Crear y Publicar Animal")
+                    if submit_add_animal:
+                        if not new_a_name.strip():
+                            st.error("⚠️ El nombre del animal es obligatorio.")
+                        else:
+                            conn_i = get_db_connection()
+                            cursor_i = conn_i.cursor()
+                            act_val = 1 if "Activo" in new_a_active else 0
+                            cursor_i.execute("""
+                                INSERT INTO animales_tienda (nombre, precioCOP, gananciaDiariaCOP, duracionDias, imagenUrl, activo)
+                                VALUES (?, ?, ?, ?, ?, ?)
+                            """, (new_a_name, new_a_price, new_a_yield, new_a_dur, new_a_img, act_val))
+                            conn_i.commit()
+                            conn_i.close()
+                            st.success(f"✅ ¡El animal '{new_a_name}' ha sido añadido al catálogo de forma exitosa!")
+                            st.rerun()
+
+            with tab_fa_audit:
+                st.subheader("📊 Auditoría de Corrales y Recolecciones")
+                st.write("Monitorea las compras activas de tus usuarios y audita los pagos e inactividades del sistema.")
+                
+                conn_aud = get_db_connection()
+                
+                # Active animals
+                st.write("<b>🐾 Animales Activos en Corrales de Usuarios:</b>", unsafe_allow_html=True)
+                active_df = pd.read_sql_query("""
+                    SELECT au.id, u.fullname, u.wallet_code, t.nombre, au.fechaCompra, au.fechaVencimiento, au.totalGanado
+                    FROM animales_usuarios au
+                    JOIN users u ON au.userId = u.wallet_code
+                    JOIN animales_tienda t ON au.animalId = t.id
+                    WHERE au.estado = 'ACTIVO'
+                    ORDER BY au.fechaCompra DESC
+                """, conn_aud)
+                
+                if len(active_df) == 0:
+                    st.info("No hay animales activos pastando actualmente.")
+                else:
+                    active_df_disp = active_df.copy()
+                    active_df_disp['Propietario'] = active_df_disp.apply(lambda r: f"{r['fullname']} ({r['wallet_code']})", axis=1)
+                    active_df_disp['Acumulado Recogido'] = active_df_disp['totalGanado'].apply(lambda x: f"{format_num(x)} SD")
+                    active_df_disp = active_df_disp[['Propietario', 'nombre', 'fechaCompra', 'fechaVencimiento', 'Acumulado Recogido']]
+                    active_df_disp.columns = ['Propietario', 'Ejemplar', 'Fecha Compra', 'Fecha Vencimiento', 'SD Recogido']
+                    st.dataframe(active_df_disp, use_container_width=True)
+                    
+                st.write("<b>🧺 Auditoría de Recolecciones / Quemas (Últimas 50 transacciones):</b>", unsafe_allow_html=True)
+                recs_audit_df = pd.read_sql_query("""
+                    SELECT r.fecha, u.fullname, u.wallet_code, t.nombre, r.montoSD, r.estado
+                    FROM recolecciones_finca r
+                    JOIN users u ON r.userId = u.wallet_code
+                    JOIN animales_usuarios au ON r.animalUsuarioId = au.id
+                    JOIN animales_tienda t ON au.animalId = t.id
+                    ORDER BY r.fecha DESC LIMIT 50
+                """, conn_aud)
+                conn_aud.close()
+                
+                if len(recs_audit_df) == 0:
+                    st.info("No hay registros de cosechas ni quemas registradas todavía.")
+                else:
+                    recs_audit_df_disp = recs_audit_df.copy()
+                    recs_audit_df_disp['Usuario'] = recs_audit_df_disp.apply(lambda r: f"{r['fullname']} ({r['wallet_code']})", axis=1)
+                    recs_audit_df_disp['Monto SD'] = recs_audit_df_disp['montoSD'].apply(lambda x: f"{format_num(x)} SD")
+                    recs_audit_df_disp['Estado'] = recs_audit_df_disp['estado'].apply(
+                        lambda e: "🟢 Cosechado / Recogido" if e == 'RECOGIDO' else ("🔴 Quemado / Perdido" if e == 'PERDIDO' else "⏳ Pendiente de Recogida")
+                    )
+                    recs_audit_df_disp = recs_audit_df_disp[['fecha', 'Usuario', 'nombre', 'Monto SD', 'Estado']]
+                    recs_audit_df_disp.columns = ['Fecha', 'Propietario', 'Ejemplar', 'SD de Cosecha', 'Estado']
+                    st.dataframe(recs_audit_df_disp, use_container_width=True)
 
         with tab_settings_token:
             st.subheader("⚙️ Parámetros Cripto y Cuenta Madre")
