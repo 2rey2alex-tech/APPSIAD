@@ -828,6 +828,71 @@ def init_db():
         except Exception:
             pass
 
+    
+    # --- TABLAS DE DUEÑO DE LA MINA (LOTES MINEROS) ---
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS lotes_mineros_config (
+            totalLotes INTEGER DEFAULT 1000,
+            precioLoteActual REAL DEFAULT 100000.0,
+            porcentajeReparto REAL DEFAULT 50.0
+        )
+    """)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS lotes_usuarios (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            userId TEXT,
+            loteNumero TEXT UNIQUE,
+            fechaCompra DATETIME DEFAULT CURRENT_TIMESTAMP,
+            precioCompra REAL,
+            estado TEXT DEFAULT 'ACTIVO',
+            precioVenta REAL DEFAULT 0.0
+        )
+    """)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS comisiones_app (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            origen TEXT,
+            monto REAL,
+            moneda TEXT DEFAULT 'COP',
+            fecha DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS dividendos_repartidos (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            fecha DATETIME DEFAULT CURRENT_TIMESTAMP,
+            totalComisiones REAL,
+            totalRepartido REAL,
+            valorPorLote REAL
+        )
+    """)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS dividendos_usuarios (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            userId TEXT,
+            montoRecibidoSD REAL,
+            fecha DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
+    try:
+        cursor.execute("SELECT COUNT(*) FROM lotes_mineros_config")
+        if cursor.fetchone()[0] == 0:
+            cursor.execute("""
+                INSERT INTO lotes_mineros_config (totalLotes, precioLoteActual, porcentajeReparto)
+                VALUES (1000, 100000.0, 50.0)
+            """)
+    except Exception:
+        pass
+
+    # Crear Billetera de Comisiones (billetera_comisiones_app) si no existe
+    cursor.execute("SELECT * FROM users WHERE wallet_code = 'billetera_comisiones_app'")
+    if not cursor.fetchone():
+        cursor.execute("""
+            INSERT INTO users (username, password, fullname, email, wallet_code, balance, is_admin, balance_cop)
+            VALUES ('comisiones_app', 'comisiones123_no_login', 'Billetera de Comisiones', 'comisiones@cryptowallet.com', 'billetera_comisiones_app', 0.0, 0, 0.0)
+        """)
+
     conn.commit()
     conn.close()
 
@@ -1561,6 +1626,17 @@ def approve_animal_purchase(purchase_id):
                 WHERE id = ?
             """, (fecha_compra_str, fecha_vencimiento_str, purchase_id))
             
+            
+            # Registrar comisión para la mina madre (Billetera de Comisiones)
+            try:
+                cursor.execute("UPDATE users SET balance_cop = balance_cop + ? WHERE wallet_code = 'billetera_comisiones_app'", (precio_cop,))
+                cursor.execute("""
+                    INSERT INTO comisiones_app (origen, monto, moneda)
+                    VALUES (?, ?, 'COP')
+                """, (f"Venta de {nombre} (Finca SD)", precio_cop))
+            except Exception:
+                pass
+
             conn.commit()
             conn.close()
             
@@ -2149,7 +2225,7 @@ def approve_chamba_submission(submission_id, admin_code):
     
     # Get details
     cursor.execute("""
-        SELECT tc.userId, tc.tareaId, t.titulo, t.recompensaSD, t.cuposUsados, t.cuposTotales
+        SELECT tc.userId, tc.tareaId, t.titulo, t.recompensaSD, t.cuposUsados, t.cuposTotales, t.costoCOPPagadoPorNegocio
         FROM tareas_completadas tc
         JOIN tareas t ON tc.tareaId = t.id
         WHERE tc.id = ? AND tc.estado = 'PENDING'
@@ -2159,7 +2235,7 @@ def approve_chamba_submission(submission_id, admin_code):
         conn.close()
         return False, "No se encontró la solicitud o ya fue revisada."
         
-    user_code, tarea_id, t_titulo, recompensa, cupos_usados, cupos_totales = row
+    user_code, tarea_id, t_titulo, recompensa, cupos_usados, cupos_totales, costo_cop = row
     
     if cupos_usados >= cupos_totales:
         conn.close()
@@ -2180,6 +2256,35 @@ def approve_chamba_submission(submission_id, admin_code):
         if cupos_usados + 1 >= cupos_totales:
             cursor.execute("UPDATE tareas SET estado = 'COMPLETED' WHERE id = ?", (tarea_id,))
             
+        
+        # Registrar comisión para la mina madre (Billetera de Comisiones - diferencia entre presupuesto y pago SD)
+        try:
+            # Calcular la comisión neta en COP
+            token_settings_c = get_token_settings()
+            # fetch live cop rate
+            try:
+                response_c = requests.get("https://economia.awesomeapi.com.br/json/last/USD-COP", timeout=2)
+                if response_c.status_code == 200:
+                    cop_rate_c = float(response_c.json()['USDCOP']['bid'])
+                else:
+                    cop_rate_c = 4150.00
+            except Exception:
+                cop_rate_c = 4150.00
+            token_price_cop_c = token_settings_c['price_usd'] * cop_rate_c
+            
+            rev_per_spot = costo_cop / cupos_totales
+            cost_per_spot = recompensa * token_price_cop_c
+            net_chamba_commission = max(0.0, rev_per_spot - cost_per_spot)
+            
+            if net_chamba_commission > 0:
+                cursor.execute("UPDATE users SET balance_cop = balance_cop + ? WHERE wallet_code = 'billetera_comisiones_app'", (net_chamba_commission,))
+                cursor.execute("""
+                    INSERT INTO comisiones_app (origen, monto, moneda)
+                    VALUES (?, ?, 'COP')
+                """, (f"Diferencia Tarea Chamba ID #{tarea_id}: {t_titulo[:30]}", net_chamba_commission))
+        except Exception:
+            pass
+
         conn.commit()
         conn.close()
         
@@ -2678,6 +2783,473 @@ def get_user_invoices(user_code):
     """, conn, params=(user_code,))
     conn.close()
     return df
+
+
+# --- MÓDULO: DUEÑO DE LA MINA (LOTES MINEROS & DIVIDENDOS) ---
+
+def get_lotes_config():
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT totalLotes, precioLoteActual, porcentajeReparto FROM lotes_mineros_config LIMIT 1")
+    row = cursor.fetchone()
+    conn.close()
+    if row:
+        return {
+            "total_lotes": row[0],
+            "precio_lote": row[1],
+            "porcentaje_reparto": row[2]
+        }
+    return {"total_lotes": 1000, "precio_lote": 100000.0, "porcentaje_reparto": 50.0}
+
+def update_lotes_config(total_lotes, precio_lote, porcentaje_reparto):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        UPDATE lotes_mineros_config 
+        SET totalLotes = ?, precioLoteActual = ?, porcentajeReparto = ?
+    """, (total_lotes, precio_lote, porcentaje_reparto))
+    conn.commit()
+    conn.close()
+    return True
+
+def get_user_lots_details(user_code):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    # User's lots list
+    cursor.execute("SELECT loteNumero, fechaCompra, precioCompra, estado, precioVenta FROM lotes_usuarios WHERE userId = ?", (user_code,))
+    lots = cursor.fetchall()
+    
+    # User's total earned from dividends
+    cursor.execute("SELECT SUM(montoRecibidoSD) FROM dividendos_usuarios WHERE userId = ?", (user_code,))
+    earned_row = cursor.fetchone()
+    total_earned = earned_row[0] or 0.0 if earned_row else 0.0
+    
+    conn.close()
+    
+    lots_list = []
+    for l in lots:
+        lots_list.append({
+            "numero": l[0],
+            "fecha": l[1],
+            "precio_compra": l[2],
+            "estado": l[3],
+            "precio_venta": l[4]
+        })
+        
+    return {
+        "lots": lots_list,
+        "total_earned_sd": total_earned
+    }
+
+def buy_mine_lots(user_code, qty):
+    if qty <= 0:
+        return False, "La cantidad de lotes debe ser mayor a cero."
+        
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    # Get config
+    cursor.execute("SELECT totalLotes, precioLoteActual FROM lotes_mineros_config LIMIT 1")
+    cfg = cursor.fetchone()
+    total_lotes_allowed = cfg[0] if cfg else 1000
+    price_per_lote = cfg[1] if cfg else 100000.0
+    
+    # Get current total lots sold
+    cursor.execute("SELECT COUNT(*) FROM lotes_usuarios")
+    current_sold = cursor.fetchone()[0] or 0
+    
+    if current_sold + qty > total_lotes_allowed:
+        conn.close()
+        return False, f"⚠️ Cupos insuficientes. Solo quedan {total_lotes_allowed - current_sold} lotes disponibles."
+        
+    total_cop_cost = qty * price_per_lote
+    
+    assigned_lots = []
+    for i in range(qty):
+        lote_num = f"#{current_sold + i + 1:04d}"
+        cursor.execute("""
+            INSERT INTO lotes_usuarios (userId, loteNumero, precioCompra, estado)
+            VALUES (?, ?, ?, 'ACTIVO')
+        """, (user_code, lote_num, price_per_lote))
+        assigned_lots.append(lote_num)
+        
+    # The purchase money goes to 'billetera_comisiones_app' as commission
+    cursor.execute("UPDATE users SET balance_cop = balance_cop + ? WHERE wallet_code = 'billetera_comisiones_app'", (total_cop_cost,))
+    
+    # Record in comisiones_app
+    cursor.execute("""
+        INSERT INTO comisiones_app (origen, monto, moneda)
+        VALUES (?, ?, 'COP')
+    """, (f"Adquisición de Lote(s) {', '.join(assigned_lots)}", total_cop_cost))
+    
+    conn.commit()
+    conn.close()
+    
+    # Send Notification
+    add_notification(
+        user_code,
+        f"👑 <b>¡Felicidades, ahora eres dueño de la mina!</b> Se te han asignado con éxito tus lotes: "
+        f"<b>{', '.join(assigned_lots)}</b>. Empezarás a recibir dividendos variables cada domingo a las 8:00 PM."
+    )
+    return True, assigned_lots
+
+def list_lot_for_sale(user_code, lote_numero, price_sd):
+    if price_sd <= 0:
+        return False, "El precio de reventa debe ser mayor a cero."
+        
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    # Check ownership
+    cursor.execute("SELECT id FROM lotes_usuarios WHERE userId = ? AND loteNumero = ? AND estado = 'ACTIVO'", (user_code, lote_numero))
+    row = cursor.fetchone()
+    if not row:
+        conn.close()
+        return False, "No posees este lote o ya se encuentra publicado a la venta."
+        
+    cursor.execute("""
+        UPDATE lotes_usuarios 
+        SET estado = 'EN_VENTA', precioVenta = ? 
+        WHERE userId = ? AND loteNumero = ?
+    """, (price_sd, user_code, lote_numero))
+    
+    conn.commit()
+    conn.close()
+    return True, f"¡Lote {lote_numero} puesto en venta por {format_num(price_sd)} SD exitosamente!"
+
+def cancel_lot_sale(user_code, lote_numero):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    # Check ownership and state
+    cursor.execute("SELECT id FROM lotes_usuarios WHERE userId = ? AND loteNumero = ? AND estado = 'EN_VENTA'", (user_code, lote_numero))
+    row = cursor.fetchone()
+    if not row:
+        conn.close()
+        return False, "El lote no está a la venta o no corresponde a tu billetera."
+        
+    cursor.execute("""
+        UPDATE lotes_usuarios 
+        SET estado = 'ACTIVO', precioVenta = 0.0 
+        WHERE userId = ? AND loteNumero = ?
+    """, (user_code, lote_numero))
+    
+    conn.commit()
+    conn.close()
+    return True, f"Venta del lote {lote_numero} cancelada con éxito."
+
+def get_lots_for_sale():
+    conn = get_db_connection()
+    df = pd.read_sql_query("""
+        SELECT l.loteNumero, l.userId, l.precioVenta, l.fechaCompra, u.fullname, u.username
+        FROM lotes_usuarios l
+        JOIN users u ON l.userId = u.wallet_code
+        WHERE l.estado = 'EN_VENTA'
+        ORDER BY l.precioVenta ASC
+    """, conn)
+    conn.close()
+    return df
+
+def buy_lot_from_marketplace(buyer_code, lote_numero):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    # Get lot details
+    cursor.execute("SELECT userId, precioVenta FROM lotes_usuarios WHERE loteNumero = ? AND estado = 'EN_VENTA'", (lote_numero,))
+    row = cursor.fetchone()
+    if not row:
+        conn.close()
+        return False, "Este lote no se encuentra a la venta en el marketplace."
+        
+    seller_code, price_sd = row
+    if seller_code == buyer_code:
+        conn.close()
+        return False, "No puedes comprar tu propio lote."
+        
+    # Check buyer balance
+    cursor.execute("SELECT balance FROM users WHERE wallet_code = ?", (buyer_code,))
+    buyer_row = cursor.fetchone()
+    if not buyer_row or buyer_row[0] < price_sd:
+        conn.close()
+        return False, f"Saldo de SD insuficiente. Este lote cuesta {format_num(price_sd)} SD."
+        
+    # Calculate fee (10%) and seller payout (90%)
+    fee_sd = price_sd * 0.10
+    seller_payout_sd = price_sd - fee_sd
+    
+    # Token rate in COP to log commission
+    token_settings = get_token_settings()
+    # fetch live cop rate
+    try:
+        response_c = requests.get("https://economia.awesomeapi.com.br/json/last/USD-COP", timeout=2)
+        if response_c.status_code == 200:
+            cop_rate = float(response_c.json()['USDCOP']['bid'])
+        else:
+            cop_rate = 4150.00
+    except Exception:
+        cop_rate = 4150.00
+    token_price_cop_val = token_settings['price_usd'] * cop_rate
+    fee_cop = fee_sd * token_price_cop_val
+    
+    try:
+        # Deduct price from buyer
+        cursor.execute("UPDATE users SET balance = balance - ? WHERE wallet_code = ?", (price_sd, buyer_code))
+        
+        # Credit seller (90%)
+        cursor.execute("UPDATE users SET balance = balance + ? WHERE wallet_code = ?", (seller_payout_sd, seller_code))
+        
+        # Credit Billetera Comisiones App (10% in SD and register equivalent in COP)
+        cursor.execute("UPDATE users SET balance = balance + ? WHERE wallet_code = 'billetera_comisiones_app'", (fee_sd,))
+        cursor.execute("UPDATE users SET balance_cop = balance_cop + ? WHERE wallet_code = 'billetera_comisiones_app'", (fee_cop,))
+        
+        # Update lot owner and status
+        cursor.execute("""
+            UPDATE lotes_usuarios 
+            SET userId = ?, estado = 'ACTIVO', precioVenta = 0.0 
+            WHERE loteNumero = ?
+        """, (buyer_code, lote_numero))
+        
+        # Record transactions
+        cursor.execute("""
+            INSERT INTO transactions (sender_code, receiver_code, amount)
+            VALUES (?, ?, ?)
+        """, (buyer_code, seller_code, seller_payout_sd))
+        cursor.execute("""
+            INSERT INTO transactions (sender_code, receiver_code, amount)
+            VALUES (?, 'billetera_comisiones_app', ?)
+        """, (buyer_code, fee_sd))
+        
+        # Record commission
+        cursor.execute("""
+            INSERT INTO comisiones_app (origen, monto, moneda)
+            VALUES (?, ?, 'COP')
+        """, (f"10% Comisión Reventa Lote {lote_numero}", fee_cop))
+        
+        conn.commit()
+        conn.close()
+        
+        # Send notifications
+        add_notification(
+            buyer_code,
+            f"🛒 <b>¡Compra de Lote Exitosa!</b> Has adquirido el <b>Lote {lote_numero}</b> por <b>{format_num(price_sd)} SD</b>. "
+            f"Ahora recibirás la participación de comisiones correspondiente a este lote."
+        )
+        add_notification(
+            seller_code,
+            f"💰 <b>¡Lote Vendido!</b> Tu <b>Lote {lote_numero}</b> fue adquirido en el marketplace por <b>{format_num(price_sd)} SD</b>. "
+            f"Se te han acreditado <b>{format_num(seller_payout_sd)} SD</b> (descontando el 10% de comisión de reventa)."
+        )
+        return True, f"¡Felicidades! Has comprado el Lote {lote_numero} con éxito."
+    except Exception as e:
+        conn.rollback()
+        conn.close()
+        return False, f"Error al procesar la compra: {str(e)}"
+
+def log_custom_commission(origen, monto_cop):
+    if not origen.strip() or monto_cop <= 0:
+        return False, "La descripción del origen y el monto en COP deben ser válidos."
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        # Add COP to billetera_comisiones_app
+        cursor.execute("UPDATE users SET balance_cop = balance_cop + ? WHERE wallet_code = 'billetera_comisiones_app'", (monto_cop,))
+        cursor.execute("""
+            INSERT INTO comisiones_app (origen, monto, moneda)
+            VALUES (?, ?, 'COP')
+        """, (origen.strip(), monto_cop))
+        conn.commit()
+        conn.close()
+        return True, f"¡Comisión por concepto '{origen}' registrada exitosamente por ${monto_cop:,.0f} COP!"
+    except Exception as e:
+        conn.rollback()
+        conn.close()
+        return False, f"Error al registrar comisión: {str(e)}"
+
+def get_mine_dashboard_stats():
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    # Total raised by lot sales (initial purchases)
+    cursor.execute("SELECT SUM(precioCompra) FROM lotes_usuarios")
+    total_recaudado = cursor.fetchone()[0] or 0.0
+    
+    # Total lots sold
+    cursor.execute("SELECT COUNT(*) FROM lotes_usuarios")
+    lots_sold = cursor.fetchone()[0] or 0
+    
+    # Commissions of the current week (balance_cop of billetera_comisiones_app)
+    cursor.execute("SELECT balance_cop FROM users WHERE wallet_code = 'billetera_comisiones_app'")
+    comm_row = cursor.fetchone()
+    week_comms = comm_row[0] or 0.0 if comm_row else 0.0
+    
+    # Total net profit (Total raised + 50% platform share of all previous distributions)
+    cursor.execute("SELECT SUM(totalComisiones - totalRepartido) FROM dividendos_repartidos")
+    platform_dividend_share = cursor.fetchone()[0] or 0.0
+    total_net_profit = total_recaudado + platform_dividend_share
+    
+    conn.close()
+    return {
+        "total_recaudado": total_recaudado,
+        "lots_sold": lots_sold,
+        "week_comms": week_comms,
+        "total_net_profit": total_net_profit
+    }
+
+def get_mine_owners_list():
+    conn = get_db_connection()
+    df = pd.read_sql_query("""
+        SELECT u.fullname, u.wallet_code, COUNT(l.id) as lotes_count, 
+               (SELECT IFNULL(SUM(du.montoRecibidoSD), 0.0) FROM dividendos_usuarios du WHERE du.userId = u.wallet_code) as total_received
+        FROM users u
+        JOIN lotes_usuarios l ON u.wallet_code = l.userId
+        GROUP BY u.wallet_code
+        ORDER BY lotes_count DESC
+    """, conn)
+    conn.close()
+    return df
+
+def get_all_repartos_history():
+    conn = get_db_connection()
+    df = pd.read_sql_query("""
+        SELECT fecha, totalComisiones, totalRepartido, valorPorLote 
+        FROM dividendos_repartidos 
+        ORDER BY fecha DESC
+    """, conn)
+    conn.close()
+    return df
+
+def run_dividends_distribution(period_str=None):
+    if period_str is None:
+        period_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    # Get current COP balance of 'billetera_comisiones_app'
+    cursor.execute("SELECT balance_cop FROM users WHERE wallet_code = 'billetera_comisiones_app'")
+    comm_row = cursor.fetchone()
+    total_cop = comm_row[0] or 0.0 if comm_row else 0.0
+    
+    token_settings = get_token_settings()
+    # fetch live cop rate
+    try:
+        response_c = requests.get("https://economia.awesomeapi.com.br/json/last/USD-COP", timeout=2)
+        if response_c.status_code == 200:
+            cop_rate = float(response_c.json()['USDCOP']['bid'])
+        else:
+            cop_rate = 4150.00
+    except Exception:
+        cop_rate = 4150.00
+    token_price_cop_val = token_settings['price_usd'] * cop_rate
+    
+    if total_cop <= 0:
+        cursor.execute("""
+            INSERT INTO dividendos_repartidos (fecha, totalComisiones, totalRepartido, valorPorLote)
+            VALUES (?, 0.0, 0.0, 0.0)
+        """, (period_str,))
+        conn.commit()
+        conn.close()
+        return True, "No había comisiones de la semana para repartir."
+        
+    # Get total active sold lots
+    cursor.execute("SELECT COUNT(*) FROM lotes_usuarios WHERE estado IN ('ACTIVO', 'EN_VENTA')")
+    total_lots_sold = cursor.fetchone()[0] or 0
+    
+    if total_lots_sold == 0:
+        cursor.execute("""
+            INSERT INTO dividendos_repartidos (fecha, totalComisiones, totalRepartido, valorPorLote)
+            VALUES (?, ?, 0.0, 0.0)
+        """, (period_str, total_cop))
+        conn.commit()
+        conn.close()
+        return True, "No hay lotes vendidos para repartir dividendos."
+        
+    pct_to_repartir = 50.0
+    cursor.execute("SELECT porcentajeReparto FROM lotes_mineros_config LIMIT 1")
+    config_pct_row = cursor.fetchone()
+    if config_pct_row:
+        pct_to_repartir = config_pct_row[0]
+        
+    repartir_cop = total_cop * (pct_to_repartir / 100.0)
+    admin_keep_cop = total_cop - repartir_cop
+    
+    cop_per_lot = repartir_cop / total_lots_sold
+    sd_per_lot = cop_per_lot / token_price_cop_val
+    
+    # Get active lot owners
+    cursor.execute("SELECT userId, COUNT(*) FROM lotes_usuarios WHERE estado IN ('ACTIVO', 'EN_VENTA') GROUP BY userId")
+    users_lots = cursor.fetchall()
+    
+    for u_code, num_lots in users_lots:
+        user_reward_sd = num_lots * sd_per_lot
+        # Credit user's SD balance and record a transaction from '99999_comisiones'
+        cursor.execute("UPDATE users SET balance = balance + ? WHERE wallet_code = ?", (user_reward_sd, u_code))
+        
+        # Record in transactions
+        cursor.execute("""
+            INSERT INTO transactions (sender_code, receiver_code, amount)
+            VALUES ('99999_comisiones', ?, ?)
+        """, (u_code, user_reward_sd))
+        
+        # Record in dividendos_usuarios
+        cursor.execute("""
+            INSERT INTO dividendos_usuarios (userId, montoRecibidoSD, fecha)
+            VALUES (?, ?, ?)
+        """, (u_code, user_reward_sd, period_str))
+        
+        # Add Notification
+        add_notification(
+            u_code,
+            f"🪙 <b>¡Tu Mina te pagó!</b> Recibiste <b>{format_num(user_reward_sd)} {token_settings['symbol']}</b> "
+            f"por tus <b>{num_lots} Lotes Mineros</b> (Participación en comisiones variables de la semana)."
+        )
+        
+    # Send other 50% (admin_keep_cop) to Admin '99999' balance_cop
+    cursor.execute("UPDATE users SET balance_cop = balance_cop + ? WHERE wallet_code = '99999'")
+    
+    # Reset 'billetera_comisiones_app' COP balance to 0 (since we distributed/claimed it all)
+    cursor.execute("UPDATE users SET balance_cop = 0.0 WHERE wallet_code = 'billetera_comisiones_app'")
+    
+    # Record in dividendos_repartidos
+    cursor.execute("""
+        INSERT INTO dividendos_repartidos (fecha, totalComisiones, totalRepartido, valorPorLote)
+        VALUES (?, ?, ?, ?)
+    """, (period_str, total_cop, repartir_cop, cop_per_lot))
+    
+    conn.commit()
+    conn.close()
+    
+    return True, f"¡Reparto completado con éxito! Se repartieron ${repartir_cop:,.0f} COP en tokens SD ({format_num(sd_per_lot)} SD por lote) entre {total_lots_sold} lotes."
+
+def check_and_run_weekly_distribution():
+    # Find the most recent Sunday 8:00 PM that has passed.
+    now = datetime.now()
+    # Sunday is weekday 6 (where Monday is 0, Sunday is 6) in Python's datetime.weekday()
+    days_since_sunday = (now.weekday() - 6) % 7
+    last_sunday_date = now.date() - timedelta(days=days_since_sunday)
+    target_sunday_8pm = datetime.combine(last_sunday_date, datetime.min.time()) + timedelta(hours=20)
+    
+    if now >= target_sunday_8pm:
+        target_period_str = target_sunday_8pm.strftime("%Y-%m-%d %H:%M:%S")
+    else:
+        target_sunday_8pm = target_sunday_8pm - timedelta(days=7)
+        target_period_str = target_sunday_8pm.strftime("%Y-%m-%d %H:%M:%S")
+        
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
+            SELECT COUNT(*) FROM dividendos_repartidos 
+            WHERE datetime(fecha) >= datetime(?, '-12 hours') AND datetime(fecha) <= datetime(?, '+12 hours')
+        """, (target_period_str, target_period_str))
+        already_run = cursor.fetchone()[0] > 0
+    except Exception:
+        already_run = True # Fail-safe
+    conn.close()
+    
+    if not already_run:
+        run_dividends_distribution(target_period_str)
 
 # --- LLAMADOS A API Y CACHÉ ---
 
@@ -4891,7 +5463,7 @@ st.markdown(f"""
 
 if not st.session_state.logged_in:
     st.sidebar.title("🔐 Alianza CryptoWallet")
-    st.sidebar.markdown("<div style='background-color: #1e293b; padding: 6px 12px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 15px; text-align: center;'><span style='color: #ffd700; font-size: 0.85rem; font-weight: bold;'>🚀 Versión de la App: v77</span></div>", unsafe_allow_html=True)
+    st.sidebar.markdown("<div style='background-color: #1e293b; padding: 6px 12px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 15px; text-align: center;'><span style='color: #ffd700; font-size: 0.85rem; font-weight: bold;'>🚀 Versión de la App: v78</span></div>", unsafe_allow_html=True)
     menu = st.sidebar.selectbox("Seleccione una opción", ["Iniciar Sesión", "Registrarse"])
     
     if menu == "Iniciar Sesión":
@@ -4959,7 +5531,7 @@ if not st.session_state.logged_in:
 else:
     # Sidebar de usuario conectado con toques dorados
     st.sidebar.markdown(f"<h2 class='golden-title'>👋 {st.session_state.fullname}</h2>", unsafe_allow_html=True)
-    st.sidebar.markdown("<div style='background-color: #1e293b; padding: 6px 12px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 15px; text-align: center;'><span style='color: #ffd700; font-size: 0.85rem; font-weight: bold;'>🚀 Versión de la App: v77</span></div>", unsafe_allow_html=True)
+    st.sidebar.markdown("<div style='background-color: #1e293b; padding: 6px 12px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 15px; text-align: center;'><span style='color: #ffd700; font-size: 0.85rem; font-weight: bold;'>🚀 Versión de la App: v78</span></div>", unsafe_allow_html=True)
     st.sidebar.markdown(f"**Billetera ID (Código):** `{st.session_state.wallet_code}`")
     
     # Obtener el número de notificaciones pendientes
@@ -4967,6 +5539,9 @@ else:
     notif_label = f"🔔 Notificaciones ({unread_notifs})" if unread_notifs > 0 else "🔔 Notificaciones"
     
     # Balance actualizado
+    # Verificar y ejecutar reparto de dividendos automático si es domingo 8pm
+    try: check_and_run_weekly_distribution() 
+    except Exception: pass
     res_bal = get_user_balance(st.session_state.username)
     balance = res_bal[0]
     wallet_code = res_bal[1]
@@ -5004,11 +5579,11 @@ else:
     
     is_owner_user = (st.session_state.username == 'admin' or st.session_state.wallet_code == '99999' or st.session_state.is_admin)
     if is_owner_user:
-        nav_options = ["🏠 Inicio y Balance", "💸 Enviar SD", "📥 Comprar SD", "🔄 Swap y Retiros", "⛏️ Minería SIAD", "🧾 Factura Minera", "🛍️ Tienda Alianza", "🎮 Juegos", "🚚 Mensajería Alianza", "👥 Cajeros P2P", "🌾 Mi Finca SD", "🛠️ Chamba SD", "👥 Mis Referidos", notif_label, "👤 Mi Perfil", "🛡️ Términos y Seguridad"]
+        nav_options = ["🏠 Inicio y Balance", "💸 Enviar SD", "📥 Comprar SD", "🔄 Swap y Retiros", "⛏️ Minería SIAD", "🧾 Factura Minera", "🪙 Vuélvete Dueño de la Mina", "🛍️ Tienda Alianza", "🎮 Juegos", "🚚 Mensajería Alianza", "👥 Cajeros P2P", "🌾 Mi Finca SD", "🛠️ Chamba SD", "👥 Mis Referidos", notif_label, "👤 Mi Perfil", "🛡️ Términos y Seguridad"]
     elif st.session_state.es_humano_verificado == 0:
         nav_options = ["🔐 Verificar Humano", "👤 Mi Perfil", "🛡️ Términos y Seguridad"]
     else:
-        nav_options = ["🏠 Inicio y Balance", "💸 Enviar SD", "📥 Comprar SD", "🔄 Swap y Retiros", "⛏️ Minería SIAD", "🧾 Factura Minera", "🛍️ Tienda Alianza", "🎮 Juegos", "🚚 Mensajería Alianza", "👥 Cajeros P2P", "🌾 Mi Finca SD", "🛠️ Chamba SD", "👥 Mis Referidos", notif_label, "👤 Mi Perfil", "🛡️ Términos y Seguridad"]
+        nav_options = ["🏠 Inicio y Balance", "💸 Enviar SD", "📥 Comprar SD", "🔄 Swap y Retiros", "⛏️ Minería SIAD", "🧾 Factura Minera", "🪙 Vuélvete Dueño de la Mina", "🛍️ Tienda Alianza", "🎮 Juegos", "🚚 Mensajería Alianza", "👥 Cajeros P2P", "🌾 Mi Finca SD", "🛠️ Chamba SD", "👥 Mis Referidos", notif_label, "👤 Mi Perfil", "🛡️ Términos y Seguridad"]
     
     # El checkbox de Modo Propietario ahora es exclusivo para la cuenta del propietario de la app (@admin) o wallet_code '99999'
     is_owner_user = (st.session_state.username == 'admin' or st.session_state.wallet_code == '99999' or st.session_state.is_admin)
@@ -8306,6 +8881,210 @@ else:
                                 st.error(f"Error procesando el comprobante: {str(ex)}")
 
     # --- SECCIÓN: MIS REFERIDOS (ÁRBOL GENEALÓGICO) ---
+
+    # --- SECCIÓN: VUÉLVETE DUEÑO DE LA MINA ---
+    elif choice == "🪙 Vuélvete Dueño de la Mina":
+        st.markdown("<h1 class='golden-title'>👑 Vuélvete Dueño de la Mina</h1>", unsafe_allow_html=True)
+        st.write("Adquiere Lotes Mineros de participación y recibe dividendos variables semanales basados en todas las comisiones cobradas por el uso de la app.")
+        
+        # Lotes config
+        lots_config = get_lotes_config()
+        price_lote = lots_config["precio_lote"]
+        total_lotes_cfg = lots_config["total_lotes"]
+        pct_reparto = lots_config["porcentaje_reparto"]
+        
+        # Get weekly comisiones total from billetera_comisiones_app
+        conn_co = get_db_connection()
+        cursor_co = conn_co.cursor()
+        cursor_co.execute("SELECT balance_cop FROM users WHERE wallet_code = 'billetera_comisiones_app'")
+        comm_row = cursor_co.fetchone()
+        weekly_comms_cop = comm_row[0] or 0.0 if comm_row else 0.0
+        
+        # Count sold lots
+        cursor_co.execute("SELECT COUNT(*) FROM lotes_usuarios")
+        lots_sold_count = cursor_co.fetchone()[0] or 0
+        conn_co.close()
+        
+        weekly_repartir_cop = weekly_comms_cop * (pct_reparto / 100.0)
+        
+        st.markdown(f"""
+        <div class="card" style="border-left: 5px solid #ffd700; background: linear-gradient(135deg, #0d0d11 0%, #1f1401 100%) !important;">
+            <h3 style="color:#ffd700; margin-top:0;">⛏️ Distribución de Comisión Semanal de la Mina Madre</h3>
+            <p style="font-size:1.1rem; color:#ffffff; line-height:1.6rem; margin:10px 0;">
+                La Mina Madre ha acumulado esta semana: <b>${weekly_comms_cop:,.0f} COP</b> en comisiones.<br>
+                El <b>{pct_reparto:,.1f}% (${weekly_repartir_cop:,.0f} COP)</b> se reparte en dividendos variables en tokens SD entre todos los dueños de lotes cada <b>Domingo a las 8:00 PM</b>.
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        tab_buy_lots, tab_market_lots, tab_my_lots, tab_div_history = st.tabs([
+            "🪙 Adquirir Lotes",
+            "🛒 Lotes en Venta (Marketplace)",
+            "📦 Mis Lotes y Reventa",
+            "📋 Historial de Dividendos"
+        ])
+        
+        with tab_buy_lots:
+            st.subheader("🛒 Adquirir Lotes Mineros Oficiales")
+            st.write(f"Conviértete en co-propietario de la mina adquiriendo lotes de participación. Quedan {total_lotes_cfg - lots_sold_count} de {total_lotes_cfg} lotes disponibles.")
+            
+            # Progress bar of sold lots
+            pct_sold = lots_sold_count / total_lotes_cfg
+            st.progress(min(max(pct_sold, 0.0), 1.0), text=f"Lotes vendidos: {lots_sold_count} / {total_lotes_cfg}")
+            
+            user_lots_info = get_user_lots_details(st.session_state.wallet_code)
+            my_lots_count = len(user_lots_info["lots"])
+            my_divs_sd = user_lots_info["total_earned_sd"]
+            
+            col_l1, col_l2 = st.columns(2)
+            with col_l1:
+                st.markdown(f"""
+                <div class="card" style="border-color:#10b981; min-height:150px; display:flex; flex-direction:column; justify-content:center;">
+                    <div class="metric-title" style="color:#10b981;">Mis Lotes Adquiridos</div>
+                    <div class="metric-value">{my_lots_count} Lotes</div>
+                    <div class="metric-sub">Lotes activos que generan dividendos</div>
+                </div>
+                """, unsafe_allow_html=True)
+            with col_l2:
+                st.markdown(f"""
+                <div class="card" style="border-color:#ffd700; min-height:150px; display:flex; flex-direction:column; justify-content:center;">
+                    <div class="metric-title">Mis Dividendos Recibidos</div>
+                    <div class="metric-value" style="color:#ffd700;">{format_num(my_divs_sd)} SD</div>
+                    <div class="metric-sub">Dividendos variables acreditados en total</div>
+                </div>
+                """, unsafe_allow_html=True)
+                
+            st.write("---")
+            st.write(f"<b>💲 Precio de un (1) Lote Minero: ${price_lote:,.0f} COP</b>", unsafe_allow_html=True)
+            
+            col_btn_b1, col_btn_b5 = st.columns(2)
+            with col_btn_b1:
+                if st.button("🛒 COMPRAR 1 LOTE", use_container_width=True):
+                    success, result = buy_mine_lots(st.session_state.wallet_code, 1)
+                    if success:
+                        st.balloons()
+                        st.success(f"🎉 ¡Felicidades! Ahora eres dueño de la mina. Se te ha asignado tu Lote {result[0]}.")
+                        st.rerun()
+                    else:
+                        st.error(result)
+            with col_btn_b5:
+                if st.button("👑 COMPRAR 5 LOTES", use_container_width=True):
+                    success, result = buy_mine_lots(st.session_state.wallet_code, 5)
+                    if success:
+                        st.balloons()
+                        st.success(f"🎉 ¡Felicidades! Ahora eres dueño de la mina. Se te han asignado tus Lotes: {', '.join(result)}.")
+                        st.rerun()
+                    else:
+                        st.error(result)
+                        
+            st.caption("ℹ️ Nota de Seguridad: Al hacer clic, la pasarela de pagos simulada procesará el pago. Una vez validada de forma automática por Nequi o pasarelas de pago, los lotes se asignan inmediatamente a tu cuenta de por vida.")
+            
+        with tab_market_lots:
+            st.subheader("🛒 Marketplace de Reventa de Lotes")
+            st.write("Adquiere Lotes Mineros listados de forma directa por otros usuarios. El precio está determinado en tokens SD por el propio vendedor.")
+            
+            market_df = get_lots_for_sale()
+            
+            if len(market_df) == 0:
+                st.info("No hay lotes en reventa listados en este momento.")
+            else:
+                col_m_cards = st.columns(3)
+                for idx, row in market_df.iterrows():
+                    col_idx = idx % 3
+                    with col_m_cards[col_idx]:
+                        st.markdown(f"""
+                        <div class="card" style="border-color:#ffd700; min-height:220px; display:flex; flex-direction:column; justify-content:space-between;">
+                            <div>
+                                <h4 style="color:#ffd700; margin-top:0;">📦 Lote {row['loteNumero']}</h4>
+                                <span style="font-size:0.85rem; color:#a1a1aa; display:block;">Vendedor: {row['fullname']} (@{row['username']})</span>
+                            </div>
+                            <div style="margin-top:15px;">
+                                <span style="font-size:1.35rem; font-weight:800; color:#10b981; display:block;">{format_num(row['precioVenta'])} SD</span>
+                                <span style="font-size:0.75rem; color:#888899; display:block;">Equivale aprox. a ${(row['precioVenta']*token_price_cop):,.0f} COP</span>
+                            </div>
+                        </div>
+                        """, unsafe_allow_html=True)
+                        if st.button(f"Comprar Lote {row['loteNumero']}", key=f"buy_m_lot_{row['loteNumero']}", use_container_width=True):
+                            success, msg = buy_lot_from_marketplace(st.session_state.wallet_code, row['loteNumero'])
+                            if success:
+                                st.balloons()
+                                st.success(msg)
+                                st.rerun()
+                            else:
+                                st.error(msg)
+                                
+        with tab_my_lots:
+            st.subheader("📦 Mis Lotes Mineros")
+            st.write("Supervisa tus Lotes Mineros adquiridos, configúralos para reventa en el marketplace o retíralos de la venta:")
+            
+            user_lots_info = get_user_lots_details(st.session_state.wallet_code)
+            my_lots = user_lots_info["lots"]
+            
+            if len(my_lots) == 0:
+                st.info("Aún no posees ningún lote minero. ¡Conviértete en co-propietario adquiriendo tus primeros lotes!")
+            else:
+                for lot in my_lots:
+                    l_num = lot["numero"]
+                    l_price = lot["precio_compra"]
+                    l_state = lot["estado"]
+                    l_sell_price = lot["precio_venta"]
+                    
+                    state_color = "#ffd700" if l_state == 'EN_VENTA' else "#10b981"
+                    state_lbl = f"🛒 En Venta por {format_num(l_sell_price)} SD" if l_state == 'EN_VENTA' else "🟢 Activo (Ganando Dividendos)"
+                    
+                    with st.expander(f"📦 Lote {l_num} - {state_lbl}"):
+                        col_lot_inf, col_lot_act = st.columns([1, 1])
+                        with col_lot_inf:
+                            st.write(f"<b>Número de Lote:</b> {l_num}", unsafe_allow_html=True)
+                            st.write(f"<b>Costo de Adquisición:</b> ${l_price:,.0f} COP", unsafe_allow_html=True)
+                            st.write(f"<b>Estado Actual:</b> <span style='color:{state_color}; font-weight:bold;'>{l_state}</span>", unsafe_allow_html=True)
+                            if l_state == 'EN_VENTA':
+                                st.write(f"<b>Precio de Reventa:</b> {format_num(l_sell_price)} SD (~${(l_sell_price*token_price_cop):,.0f} COP)", unsafe_allow_html=True)
+                        with col_lot_act:
+                            if l_state == 'ACTIVO':
+                                with st.form(f"sell_lot_form_{l_num}"):
+                                    sell_price_sd = st.number_input("Precio de reventa en Tokens SD:", min_value=1.0, value=100.0, step=10.0, key=f"sell_price_{l_num}")
+                                    submit_sell = st.form_submit_button("🛒 Publicar en el Marketplace")
+                                    if submit_sell:
+                                        success, msg = list_lot_for_sale(st.session_state.wallet_code, l_num, sell_price_sd)
+                                        if success:
+                                            st.success(msg)
+                                            st.rerun()
+                                        else:
+                                            st.error(msg)
+                            elif l_state == 'EN_VENTA':
+                                if st.button("❌ Cancelar Reventa", key=f"cancel_sell_{l_num}", use_container_width=True):
+                                    success, msg = cancel_lot_sale(st.session_state.wallet_code, l_num)
+                                    if success:
+                                        st.success(msg)
+                                        st.rerun()
+                                    else:
+                                        st.error(msg)
+                                        
+        with tab_div_history:
+            st.subheader("📋 Mi Historial de Dividendos")
+            st.write("Consulta el historial completo de acreditación de dividendos que tus lotes mineros te han generado:")
+            
+            conn_du = get_db_connection()
+            user_divs_df = pd.read_sql_query("""
+                SELECT fecha, montoRecibidoSD 
+                FROM dividendos_usuarios 
+                WHERE userId = ? 
+                ORDER BY fecha DESC
+            """, conn_du, params=(st.session_state.wallet_code,))
+            conn_du.close()
+            
+            if len(user_divs_df) == 0:
+                st.info("Aún no has recibido dividendos de tus lotes. Los dividendos se liquidan automáticamente cada Domingo a las 8:00 PM.")
+            else:
+                user_divs_df_disp = user_divs_df.copy()
+                user_divs_df_disp['Pago (SD)'] = user_divs_df_disp['montoRecibidoSD'].apply(lambda x: f"+{format_num(x)} SD")
+                user_divs_df_disp['Equivalente en Pesos'] = user_divs_df_disp['montoRecibidoSD'].apply(lambda x: f"${(x*token_price_cop):,.0f} COP")
+                user_divs_df_disp = user_divs_df_disp[['fecha', 'Pago (SD)', 'Equivalente en Pesos']]
+                user_divs_df_disp.columns = ['Fecha de Pago', 'Dividendo (SD)', 'Valor (COP)']
+                st.dataframe(user_divs_df_disp, use_container_width=True)
+
+
     elif choice == "👥 Mis Referidos":
 
         st.markdown("<h1 class='golden-title'>👥 Mi Red de Referidos</h1>", unsafe_allow_html=True)
@@ -9624,6 +10403,157 @@ else:
                     <div class="metric-sub">Diferencia (Tráfico COP - SD Minado COP)</div>
                 </div>
                 """, unsafe_allow_html=True)
+
+
+        with tab_mina_madre:
+            st.subheader("👑 Configuración y Reparto de Dividendos - Mina Madre")
+            st.write("Monitorea los lotes mineros de participación activa, consulta el histórico de repartos dominicales y ejecuta dividendos variables manualmente.")
+            
+            # Fetch mine metrics
+            mine_stats = get_mine_dashboard_stats()
+            
+            col_mm1, col_mm2, col_mm3, col_mm4 = st.columns(4)
+            with col_mm1:
+                st.markdown(f"""
+                <div class="card" style="border-left: 5px solid #10b981;">
+                    <div class="metric-title">Total Recaudado (Venta Lotes)</div>
+                        <div class="metric-value" style="color: #10b981;">${mine_stats['total_recaudado']:,.0f} COP</div>
+                    <div class="metric-sub">Capital bruto por lotes vendidos</div>
+                </div>
+                """, unsafe_allow_html=True)
+            with col_mm2:
+                st.markdown(f"""
+                <div class="card" style="border-left: 5px solid #ffd700;">
+                    <div class="metric-title">Lotes Vendidos</div>
+                        <div class="metric-value" style="color: #ffd700;">{mine_stats['lots_sold']} / 1,000</div>
+                    <div class="metric-sub">Participaciones emitidas en total</div>
+                </div>
+                """, unsafe_allow_html=True)
+            with col_mm3:
+                st.markdown(f"""
+                <div class="card" style="border-left: 5px solid #3b82f6;">
+                    <div class="metric-title">Comisiones Acumuladas (Semana)</div>
+                        <div class="metric-value" style="color: #3b82f6;">${mine_stats['week_comms']:,.0f} COP</div>
+                    <div class="metric-sub">Fondo en billetera_comisiones_app</div>
+                </div>
+                """, unsafe_allow_html=True)
+            with col_mm4:
+                st.markdown(f"""
+                <div class="card" style="border-left: 5px solid #ef4444;">
+                    <div class="metric-title">Ganancia Neta (Plataforma)</div>
+                        <div class="metric-value" style="color: #ef4444;">${mine_stats['total_net_profit']:,.0f} COP</div>
+                    <div class="metric-sub">Venta de lotes + 50% de comisiones</div>
+                </div>
+                """, unsafe_allow_html=True)
+                
+            st.markdown("---")
+            
+            tab_mm_config, tab_mm_owners, tab_mm_reparto, tab_mm_pub = st.tabs([
+                "⚙️ Configuración Global",
+                "👥 Propietarios de Lotes",
+                "📊 Historial de Repartos",
+                "📢 Log de Publicidad / Otras Comisiones"
+            ])
+            
+            with tab_mm_config:
+                st.subheader("⚙️ Parámetros Globales de la Mina Madre")
+                st.write("Modifica el suministro de lotes permitidos, el precio oficial de compra y el porcentaje de comisiones a repartir:")
+                
+                cfg_lots = get_lotes_config()
+                
+                with st.form("admin_lotes_config_form"):
+                    col_cf1, col_cf2, col_cf3 = st.columns(3)
+                    with col_cf1:
+                        new_total_lots = st.number_input("Suministro Total de Lotes:", value=int(cfg_lots["total_lotes"]), min_value=1)
+                    with col_cf2:
+                        new_price_lote = st.number_input("Precio de 1 Lote (COP):", value=float(cfg_lots["precio_lote"]), min_value=1000.0, step=1000.0)
+                    with col_cf3:
+                        new_pct_reparto = st.number_input("Porcentaje de comisiones a dueños (%):", value=float(cfg_lots["porcentaje_reparto"]), min_value=0.0, max_value=100.0, step=5.0)
+                        
+                    submit_l_cfg = st.form_submit_button("💾 Guardar Parámetros de la Mina")
+                    if submit_l_cfg:
+                        update_lotes_config(new_total_lots, new_price_lote, new_pct_reparto)
+                        st.success("✅ ¡Los parámetros de la Mina Madre han sido actualizados con éxito!")
+                        st.rerun()
+                        
+                st.markdown("---")
+                st.subheader("🏁 Liquidación Manual de Dividendos")
+                st.write("Si deseas forzar el reparto de dividendos variables de la semana en este instante sin esperar al domingo, haz clic abajo:")
+                
+                if st.button("🏁 EJECUTAR REPARTO DE DIVIDENDOS MANUALMENTE", use_container_width=True):
+                    success, msg = run_dividends_distribution()
+                    if success:
+                        st.success(msg)
+                        st.balloons()
+                        st.rerun()
+                    else:
+                        st.error(msg)
+                        
+            with tab_mm_owners:
+                st.subheader("👥 Listado de Propietarios de Lotes")
+                st.write("Consulta quiénes tienen participaciones de lotes en su billetera y cuánto dividendo acumulado han recibido:")
+                
+                owners_df = get_mine_owners_list()
+                if len(owners_df) == 0:
+                    st.info("No hay propietarios de lotes registrados en la red.")
+                else:
+                    owners_df_disp = owners_df.copy()
+                    owners_df_disp['Lotes Activos'] = owners_df_disp['lotes_count'].apply(lambda x: f"{x} Lotes")
+                    owners_df_disp['Dividendos Recibidos'] = owners_df_disp['total_received'].apply(lambda x: f"{format_num(x)} SD")
+                    owners_df_disp = owners_df_disp[['fullname', 'wallet_code', 'Lotes Activos', 'Dividendos Recibidos']]
+                    owners_df_disp.columns = ['Propietario', 'Billetera ID', 'Lotes en su Cuenta', 'Dividendos Totales']
+                    st.dataframe(owners_df_disp, use_container_width=True)
+                    
+            with tab_mm_reparto:
+                st.subheader("📊 Historial de Repartos de Dividendos")
+                st.write("Audita los dividendos variables liquidados históricamente en la plataforma:")
+                
+                repartos_df = get_all_repartos_history()
+                if len(repartos_df) == 0:
+                    st.info("Aún no se ha realizado ninguna liquidación de dividendos en el sistema.")
+                else:
+                    repartos_df_disp = repartos_df.copy()
+                    repartos_df_disp['Comisión Total'] = repartos_df_disp['totalComisiones'].apply(lambda x: f"${x:,.0f} COP")
+                    repartos_df_disp['Repartido a Dueños (50%)'] = repartos_df_disp['totalRepartido'].apply(lambda x: f"${x:,.0f} COP")
+                    repartos_df_disp['Dividendo por Lote'] = repartos_df_disp['valorPorLote'].apply(lambda x: f"${x:,.1f} COP")
+                    repartos_df_disp = repartos_df_disp[['fecha', 'Comisión Total', 'Repartido a Dueños (50%)', 'Dividendo por Lote']]
+                    repartos_df_disp.columns = ['Fecha Reparto', 'Monto de Comisión Total', 'Monto Distribuido (50%)', 'COP por Lote']
+                    st.dataframe(repartos_df_disp, use_container_width=True)
+                    
+            with tab_mm_pub:
+                st.subheader("📢 Log de Publicidad / Otras Comisiones Manuales")
+                st.write("Registra ingresos extraordinarios cobrados en efectivo o canales externos (como contratos de publicidad de negocios de Ibagué) para sumarlos al pool de comisiones de la semana:")
+                
+                with st.form("add_manual_commission_form"):
+                    concept_inp = st.text_input("Concepto / Patrocinador:", placeholder="Ej: Publicidad banners - Pizzería Ibagué")
+                    amt_cop_inp = st.number_input("Monto pagado en COP ($):", min_value=1000.0, value=50000.0, step=10000.0)
+                    submit_manual_comm = st.form_submit_button("📢 Registrar e Ingresar al Pool")
+                    if submit_manual_comm:
+                        success, msg = log_custom_commission(concept_inp, amt_cop_inp)
+                        if success:
+                            st.success(msg)
+                            st.rerun()
+                        else:
+                            st.error(msg)
+                            
+                st.write("<b>📋 Detalle de Comisiones de la Semana en curso:</b>", unsafe_allow_html=True)
+                conn_comms = get_db_connection()
+                comms_df = pd.read_sql_query("""
+                    SELECT fecha, origen, monto, moneda 
+                    FROM comisiones_app 
+                    ORDER BY fecha DESC LIMIT 50
+                """, conn_comms)
+                conn_comms.close()
+                
+                if len(comms_df) == 0:
+                    st.info("No hay comisiones registradas en el pool para esta semana todavía.")
+                else:
+                    comms_df_disp = comms_df.copy()
+                    comms_df_disp['Monto Registrado'] = comms_df_disp['monto'].apply(lambda x: f"${x:,.0f} COP")
+                    comms_df_disp = comms_df_disp[['fecha', 'origen', 'Monto Registrado']]
+                    comms_df_disp.columns = ['Fecha/Hora', 'Concepto / Origen', 'COP Recibido']
+                    st.dataframe(comms_df_disp, use_container_width=True)
+
 
         with tab_referrals:
             st.subheader("👥 Gestión de Comisiones por Referidos")
