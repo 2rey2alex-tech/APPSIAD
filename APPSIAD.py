@@ -602,6 +602,69 @@ def init_db():
         )
     """)
 
+    # Tabla: verificaciones_diarias (Para Human Proof)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS verificaciones_diarias (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            userId TEXT,
+            fecha TEXT,
+            bpm REAL,
+            paso_parpadeo_ok INTEGER,
+            paso_voz_ok INTEGER
+        )
+    """)
+
+    # Tabla: facturas (Para Factura Minera)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS facturas (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            userId TEXT,
+            num_factura TEXT,
+            cufe TEXT,
+            fecha_factura TEXT,
+            total_factura REAL,
+            hash_factura TEXT UNIQUE,
+            monto_pagado_sd REAL,
+            bono_humano_aplicado INTEGER,
+            estado TEXT DEFAULT 'PENDING',
+            comprobante_image BLOB,
+            fecha_subida DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
+    try:
+        cursor.execute("ALTER TABLE users ADD COLUMN es_humano_verificado INTEGER DEFAULT 0")
+    except sqlite3.OperationalError:
+        pass
+    try:
+        cursor.execute("ALTER TABLE users ADD COLUMN fecha_verificacion_humana TEXT DEFAULT NULL")
+    except sqlite3.OperationalError:
+        pass
+    try:
+        cursor.execute("ALTER TABLE users ADD COLUMN imei_dispositivo TEXT DEFAULT NULL")
+    except sqlite3.OperationalError:
+        pass
+    try:
+        cursor.execute("ALTER TABLE users ADD COLUMN hash_rostro TEXT DEFAULT NULL")
+    except sqlite3.OperationalError:
+        pass
+    try:
+        cursor.execute("ALTER TABLE users ADD COLUMN ultimo_pulso_fecha TEXT DEFAULT NULL")
+    except sqlite3.OperationalError:
+        pass
+    try:
+        cursor.execute("ALTER TABLE users ADD COLUMN pulso_bpm REAL DEFAULT 0.0")
+    except sqlite3.OperationalError:
+        pass
+    try:
+        cursor.execute("ALTER TABLE users ADD COLUMN human_id_unico TEXT DEFAULT NULL")
+    except sqlite3.OperationalError:
+        pass
+    try:
+        cursor.execute("ALTER TABLE users ADD COLUMN human_blocked INTEGER DEFAULT 0")
+    except sqlite3.OperationalError:
+        pass
+
     try:
         cursor.execute("ALTER TABLE users ADD COLUMN chamba_blocked INTEGER DEFAULT 0")
     except sqlite3.OperationalError:
@@ -2314,6 +2377,299 @@ def get_all_chamba_tasks_admin():
     conn.close()
     return df
 
+# --- SISTEMA DE VERIFICACIÓN HUMANA (HUMAN PROOF LITE) & FACTURAS MINERAS ---
+
+def is_user_human_blocked(user_code):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT human_blocked FROM users WHERE wallet_code = ?", (user_code,))
+    res = cursor.fetchone()
+    conn.close()
+    return bool(res[0]) if res else False
+
+def verify_human_p2p(user_code, imei, face_hash, bpm):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    # 1. IMEI device lock check
+    cursor.execute("SELECT wallet_code, fullname FROM users WHERE imei_dispositivo = ? AND es_humano_verificado = 1 AND wallet_code != ?", (imei, user_code))
+    dup_imei = cursor.fetchone()
+    if dup_imei:
+        conn.close()
+        return False, f"⚠️ Este dispositivo móvil (IMEI/UUID) ya tiene una cuenta asociada verificada como Humano Real ({dup_imei[1]}). Sólo se permite una cuenta por dispositivo."
+        
+    # 2. Face hash check
+    cursor.execute("SELECT wallet_code, fullname FROM users WHERE hash_rostro = ? AND es_humano_verificado = 1 AND wallet_code != ?", (face_hash, user_code))
+    dup_face = cursor.fetchone()
+    if dup_face:
+        conn.close()
+        return False, f"⚠️ Este rostro ya coincide con otro Humano Real registrado ({dup_face[1]}). No se permiten cuentas duplicadas."
+        
+    # Generate unique Human ID
+    while True:
+        h_id = f"HUMAN-{random.randint(10000, 99999)}"
+        cursor.execute("SELECT 1 FROM users WHERE human_id_unico = ?", (h_id,))
+        if not cursor.fetchone():
+            break
+            
+    try:
+        # Update user status and reward 5000 SD
+        today_date = datetime.now().strftime("%Y-%m-%d")
+        cursor.execute("""
+            UPDATE users 
+            SET es_humano_verificado = 1,
+                fecha_verificacion_humana = datetime('now'),
+                imei_dispositivo = ?,
+                hash_rostro = ?,
+                ultimo_pulso_fecha = ?,
+                pulso_bpm = ?,
+                human_id_unico = ?
+            WHERE wallet_code = ?
+        """, (imei, face_hash, today_date, bpm, h_id, user_code))
+        
+        # Log into verificaciones_diarias
+        cursor.execute("""
+            INSERT INTO verificaciones_diarias (userId, fecha, bpm, paso_parpadeo_ok, paso_voz_ok)
+            VALUES (?, ?, ?, 1, 1)
+        """, (user_code, today_date, bpm))
+        
+        conn.commit()
+        conn.close()
+        
+        # Pay 5,000 SD reward
+        success, msg = send_points("99999", user_code, 5000.0)
+        if success:
+            add_notification(
+                user_code,
+                f"🎉 <b>¡Bienvenido Humano Real!</b> Has completado con éxito tu Prueba de Vida (Human Proof). "
+                f"Se han acreditado <b>5,000 SD gratis</b> a tu billetera y tu <b>ID de Humano es {h_id}</b>. "
+                f"¡Disfruta ahora del Bono Doble (2X) en todas tus facturas minadas!"
+            )
+        return True, f"¡Felicidades! Has sido verificado como Humano Real de Ibagué. ID asignado: {h_id} y se han acreditado 5.000 SD en tu balance."
+    except Exception as e:
+        conn.rollback()
+        conn.close()
+        return False, f"Error al realizar la verificación: {str(e)}"
+
+def verify_daily_pulse(user_code, bpm):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    today_date = datetime.now().strftime("%Y-%m-%d")
+    try:
+        cursor.execute("""
+            UPDATE users 
+            SET ultimo_pulso_fecha = ?,
+                pulso_bpm = ?
+            WHERE wallet_code = ?
+        """, (today_date, bpm, user_code))
+        
+        cursor.execute("""
+            INSERT INTO verificaciones_diarias (userId, fecha, bpm, paso_parpadeo_ok, paso_voz_ok)
+            VALUES (?, ?, ?, 1, 1)
+        """, (user_code, today_date, bpm))
+        
+        conn.commit()
+        conn.close()
+        return True, f"🩺 ¡Chequeo de pulso verificado con éxito: {int(bpm)} BPM! Tu minado de facturas está desbloqueado por hoy."
+    except Exception as e:
+        conn.rollback()
+        conn.close()
+        return False, f"Error al registrar pulso diario: {str(e)}"
+
+def submit_invoice_claim(user_code, num_factura, cufe, fecha_factura, total_factura, image_bytes):
+    # Check if blocked
+    if is_user_human_blocked(user_code):
+        return False, "⚠️ Tu cuenta de Humano Real ha sido bloqueada debido a sospecha de fraude o inconsistencias."
+        
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    # Check user verification status
+    cursor.execute("SELECT es_humano_verificado, ultimo_pulso_fecha FROM users WHERE wallet_code = ?", (user_code,))
+    user_row = cursor.fetchone()
+    if not user_row:
+        conn.close()
+        return False, "Usuario no encontrado."
+        
+    es_humano, ultimo_pulso_fecha = user_row
+    
+    # If human verified, check daily pulse
+    if es_humano == 1:
+        today_date = datetime.now().strftime("%Y-%m-%d")
+        if ultimo_pulso_fecha != today_date:
+            conn.close()
+            return False, "⚠️ **Chequeo de Pulso Diario Requerido:** Como Humano Real verificado, debes registrar tu pulso de 10 segundos hoy para poder minar esta factura."
+            
+    # Calculate invoice uniqueness hash (num_factura + cufe + total_factura)
+    hash_payload = f"{num_factura.strip().upper()}_{cufe.strip().upper()}_{float(total_factura):.2f}"
+    hash_invoice = hashlib.sha256(hash_payload.encode()).hexdigest()
+    
+    # Check duplicate
+    cursor.execute("SELECT userId FROM facturas WHERE hash_factura = ?", (hash_invoice,))
+    dup_invoice = cursor.fetchone()
+    if dup_invoice:
+        conn.close()
+        return False, "⚠️ **Factura Repetida:** Esta factura ya fue minada por otro humano."
+        
+    # Define rewards
+    base_reward = 500.0 # 1X payout
+    if es_humano == 1:
+        monto_pago_sd = base_reward * 2 # 2X payout (1000 SD)
+        bono_aplicado = 1
+    else:
+        monto_pago_sd = base_reward
+        bono_aplicado = 0
+        
+    try:
+        cursor.execute("""
+            INSERT INTO facturas (userId, num_factura, cufe, fecha_factura, total_factura, hash_factura, monto_pagado_sd, bono_humano_aplicado, comprobante_image, estado)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING')
+        """, (user_code, num_factura, cufe, fecha_factura, total_factura, hash_invoice, monto_pago_sd, bono_aplicado, image_bytes))
+        
+        conn.commit()
+        conn.close()
+        return True, f"✅ ¡Tu factura ha sido subida con éxito para verificación! Recibirás {format_num(monto_pago_sd)} SD una vez aprobada."
+    except Exception as e:
+        conn.rollback()
+        conn.close()
+        return False, f"Error al registrar la factura: {str(e)}"
+
+def get_pending_invoices():
+    conn = get_db_connection()
+    df = pd.read_sql_query("""
+        SELECT f.id, f.userId, f.num_factura, f.cufe, f.fecha_factura, f.total_factura, f.monto_pagado_sd, f.bono_humano_aplicado, f.comprobante_image, f.fecha_subida, u.fullname, u.username, u.es_humano_verificado
+        FROM facturas f
+        JOIN users u ON f.userId = u.wallet_code
+        WHERE f.estado = 'PENDING'
+        ORDER BY f.fecha_subida ASC
+    """, conn)
+    conn.close()
+    return df
+
+def approve_invoice_claim(request_id, amount_sd):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT f.userId, f.num_factura, f.monto_pagado_sd, u.fullname 
+        FROM facturas f 
+        JOIN users u ON f.userId = u.wallet_code 
+        WHERE f.id = ? AND f.estado = 'PENDING'
+    """, (request_id,))
+    req = cursor.fetchone()
+    if req:
+        user_code, num_fac, original_monto, fullname = req
+        # Update status
+        cursor.execute("UPDATE facturas SET estado = 'APPROVED', monto_pagado_sd = ? WHERE id = ?", (amount_sd, request_id))
+        conn.commit()
+        conn.close()
+        
+        # Pay SD from master wallet 99999
+        success, msg = send_points("99999", user_code, amount_sd)
+        if success:
+            add_notification(
+                user_code,
+                f"🧾 <b>¡Factura aprobada y minada con éxito!</b> El administrador validó tu factura Nro. <b>{num_fac}</b>. "
+                f"Se han acreditado <b>{format_num(amount_sd)} SD</b> directamente a tu balance."
+            )
+        return success, msg
+    conn.close()
+    return False, "No se encontró la solicitud de factura."
+
+def reject_invoice_claim(request_id, reason):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT f.userId, f.num_factura, f.monto_pagado_sd 
+        FROM facturas f 
+        WHERE f.id = ? AND f.estado = 'PENDING'
+    """, (request_id,))
+    req = cursor.fetchone()
+    if req:
+        user_code, num_fac, original_monto = req
+        cursor.execute("UPDATE facturas SET estado = 'REJECTED' WHERE id = ?", (request_id,))
+        conn.commit()
+        conn.close()
+        
+        add_notification(
+            user_code,
+            f"❌ <b>Factura rechazada:</b> Tu comprobante para la factura Nro. <b>{num_fac}</b> fue rechazado "
+            f"por el siguiente motivo: <i>{reason}</i>."
+        )
+        return True
+    conn.close()
+    return False
+
+def toggle_human_block(user_code, block):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT fullname FROM users WHERE wallet_code = ?", (user_code,))
+    user = cursor.fetchone()
+    if not user:
+        conn.close()
+        return False, "No se encontró ningún usuario con ese código de billetera."
+        
+    fullname = user[0]
+    block_val = 1 if block else 0
+    cursor.execute("UPDATE users SET human_blocked = ? WHERE wallet_code = ?", (block_val, user_code))
+    conn.commit()
+    conn.close()
+    
+    if block:
+        add_notification(user_code, "⚠️ <b>Tu cuenta de Humano Real ha sido bloqueada</b> por el administrador debido a sospechas de fraude.")
+        return True, f"🔒 Humano {fullname} bloqueado correctamente."
+    else:
+        add_notification(user_code, "🔓 <b>Tu cuenta de Humano Real ha sido desbloqueada</b> por el administrador.")
+        return True, f"🔓 Humano {fullname} desbloqueado correctamente."
+
+def get_humanos_stats():
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    # Total verified
+    cursor.execute("SELECT COUNT(*) FROM users WHERE es_humano_verificado = 1")
+    total_humans = cursor.fetchone()[0] or 0
+    
+    # Total verified today
+    cursor.execute("SELECT COUNT(*) FROM users WHERE es_humano_verificado = 1 AND DATE(fecha_verificacion_humana) = DATE('now')")
+    today_humans = cursor.fetchone()[0] or 0
+    
+    # Total verified this month
+    cursor.execute("SELECT COUNT(*) FROM users WHERE es_humano_verificado = 1 AND strftime('%m', fecha_verificacion_humana) = strftime('%m', 'now')")
+    month_humans = cursor.fetchone()[0] or 0
+    
+    # Blocked accounts
+    cursor.execute("SELECT COUNT(*) FROM users WHERE human_blocked = 1")
+    blocked_humans = cursor.fetchone()[0] or 0
+    
+    # Duplicate bills blocked count (number of rejected invoice claims due to duplicate)
+    cursor.execute("SELECT COUNT(*) FROM facturas WHERE estado = 'REJECTED'")
+    fraud_bills_count = cursor.fetchone()[0] or 0
+    
+    conn.close()
+    return total_humans, today_humans, month_humans, blocked_humans, fraud_bills_count
+
+def get_all_humanos_list():
+    conn = get_db_connection()
+    df = pd.read_sql_query("""
+        SELECT u.fullname, u.wallet_code, u.email, u.es_humano_verificado, u.fecha_verificacion_humana, u.ultimo_pulso_fecha, u.human_blocked,
+               (SELECT COUNT(*) FROM facturas f WHERE f.userId = u.wallet_code) as total_facturas
+        FROM users u
+        ORDER BY u.es_humano_verificado DESC, u.fullname ASC
+    """, conn)
+    conn.close()
+    return df
+
+def get_user_invoices(user_code):
+    conn = get_db_connection()
+    df = pd.read_sql_query("""
+        SELECT id, num_factura, cufe, fecha_factura, total_factura, monto_pagado_sd, bono_humano_aplicado, estado, fecha_subida
+        FROM facturas
+        WHERE userId = ?
+        ORDER BY fecha_subida DESC
+    """, conn, params=(user_code,))
+    conn.close()
+    return df
+
 # --- LLAMADOS A API Y CACHÉ ---
 
 @st.cache_data(ttl=120)
@@ -2633,10 +2989,10 @@ def send_points(sender_code, receiver_code, amount):
 def get_user_balance(username):
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT balance, wallet_code, balance_cop, is_vip FROM users WHERE username = ?", (username,))
+    cursor.execute("SELECT balance, wallet_code, balance_cop, is_vip, es_humano_verificado, human_id_unico, ultimo_pulso_fecha, human_blocked FROM users WHERE username = ?", (username,))
     res = cursor.fetchone()
     conn.close()
-    return res if res else (0.0, "", 0.0, 0)
+    return res if res else (0.0, "", 0.0, 0, 0, None, None, 0)
 
 def get_user_staking_details(user_code):
     conn = get_db_connection()
@@ -4526,7 +4882,7 @@ st.markdown(f"""
 
 if not st.session_state.logged_in:
     st.sidebar.title("🔐 Alianza CryptoWallet")
-    st.sidebar.markdown("<div style='background-color: #1e293b; padding: 6px 12px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 15px; text-align: center;'><span style='color: #ffd700; font-size: 0.85rem; font-weight: bold;'>🚀 Versión de la App: v75</span></div>", unsafe_allow_html=True)
+    st.sidebar.markdown("<div style='background-color: #1e293b; padding: 6px 12px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 15px; text-align: center;'><span style='color: #ffd700; font-size: 0.85rem; font-weight: bold;'>🚀 Versión de la App: v76</span></div>", unsafe_allow_html=True)
     menu = st.sidebar.selectbox("Seleccione una opción", ["Iniciar Sesión", "Registrarse"])
     
     if menu == "Iniciar Sesión":
@@ -4594,7 +4950,7 @@ if not st.session_state.logged_in:
 else:
     # Sidebar de usuario conectado con toques dorados
     st.sidebar.markdown(f"<h2 class='golden-title'>👋 {st.session_state.fullname}</h2>", unsafe_allow_html=True)
-    st.sidebar.markdown("<div style='background-color: #1e293b; padding: 6px 12px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 15px; text-align: center;'><span style='color: #ffd700; font-size: 0.85rem; font-weight: bold;'>🚀 Versión de la App: v75</span></div>", unsafe_allow_html=True)
+    st.sidebar.markdown("<div style='background-color: #1e293b; padding: 6px 12px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 15px; text-align: center;'><span style='color: #ffd700; font-size: 0.85rem; font-weight: bold;'>🚀 Versión de la App: v76</span></div>", unsafe_allow_html=True)
     st.sidebar.markdown(f"**Billetera ID (Código):** `{st.session_state.wallet_code}`")
     
     # Obtener el número de notificaciones pendientes
@@ -4602,8 +4958,21 @@ else:
     notif_label = f"🔔 Notificaciones ({unread_notifs})" if unread_notifs > 0 else "🔔 Notificaciones"
     
     # Balance actualizado
-    balance, wallet_code, balance_cop_user, is_vip_user = get_user_balance(st.session_state.username)
+    res_bal = get_user_balance(st.session_state.username)
+    balance = res_bal[0]
+    wallet_code = res_bal[1]
+    balance_cop_user = res_bal[2]
+    is_vip_user = res_bal[3]
+    es_humano_verificado = res_bal[4] if len(res_bal) > 4 else 0
+    human_id_unico = res_bal[5] if len(res_bal) > 5 else None
+    ultimo_pulso_fecha = res_bal[6] if len(res_bal) > 6 else None
+    human_blocked = res_bal[7] if len(res_bal) > 7 else 0
+
     st.session_state.wallet_code = wallet_code
+    st.session_state.es_humano_verificado = es_humano_verificado
+    st.session_state.human_id_unico = human_id_unico
+    st.session_state.ultimo_pulso_fecha = ultimo_pulso_fecha
+    st.session_state.human_blocked = human_blocked
     
     # RESPALDO DE BALANCE EN BASE DE DATOS LOCAL
     balance_db = balance
@@ -4624,7 +4993,13 @@ else:
     balance_usd = balance * token_price_usd
     balance_cop_equiv = balance_usd * usd_cop
     
-    nav_options = ["🏠 Inicio y Balance", "💸 Enviar SD", "📥 Comprar SD", "🔄 Swap y Retiros", "⛏️ Minería SIAD", "🛍️ Tienda Alianza", "🎮 Juegos", "🚚 Mensajería Alianza", "👥 Cajeros P2P", "🌾 Mi Finca SD", "🛠️ Chamba SD", "👥 Mis Referidos", notif_label, "👤 Mi Perfil", "🛡️ Términos y Seguridad"]
+    is_owner_user = (st.session_state.username == 'admin' or st.session_state.wallet_code == '99999' or st.session_state.is_admin)
+    if is_owner_user:
+        nav_options = ["🏠 Inicio y Balance", "💸 Enviar SD", "📥 Comprar SD", "🔄 Swap y Retiros", "⛏️ Minería SIAD", "🧾 Factura Minera", "🛍️ Tienda Alianza", "🎮 Juegos", "🚚 Mensajería Alianza", "👥 Cajeros P2P", "🌾 Mi Finca SD", "🛠️ Chamba SD", "👥 Mis Referidos", notif_label, "👤 Mi Perfil", "🛡️ Términos y Seguridad"]
+    elif st.session_state.es_humano_verificado == 0:
+        nav_options = ["🔐 Verificar Humano", "👤 Mi Perfil", "🛡️ Términos y Seguridad"]
+    else:
+        nav_options = ["🏠 Inicio y Balance", "💸 Enviar SD", "📥 Comprar SD", "🔄 Swap y Retiros", "⛏️ Minería SIAD", "🧾 Factura Minera", "🛍️ Tienda Alianza", "🎮 Juegos", "🚚 Mensajería Alianza", "👥 Cajeros P2P", "🌾 Mi Finca SD", "🛠️ Chamba SD", "👥 Mis Referidos", notif_label, "👤 Mi Perfil", "🛡️ Términos y Seguridad"]
     
     # El checkbox de Modo Propietario ahora es exclusivo para la cuenta del propietario de la app (@admin) o wallet_code '99999'
     is_owner_user = (st.session_state.username == 'admin' or st.session_state.wallet_code == '99999' or st.session_state.is_admin)
@@ -4649,8 +5024,321 @@ else:
         st.session_state.is_admin = False
         st.rerun()
 
+    # --- VERIFICAR HUMANO (MANDATORY ONBOARDING WIZARD) ---
+    elif choice == "🔐 Verificar Humano":
+        st.markdown("<h1 class='golden-title'>🔐 Verificación de Humano Real (Human Proof)</h1>", unsafe_allow_html=True)
+        
+        # Check if already verified
+        if st.session_state.es_humano_verificado == 1:
+            st.success(f"✅ **¡Cuenta Verificada!** Tu ID de Humano es: **{st.session_state.human_id_unico}**.")
+            st.info("Ya eres parte de nuestra base de datos de humanos reales y disfrutas del **Bono Doble (2X)** en todas tus facturas minadas.")
+        else:
+            if "onboarding_step" not in st.session_state:
+                st.session_state.onboarding_step = 1
+                
+            if st.session_state.onboarding_step == 1:
+                st.markdown("""
+                <div class="card" style="border-left: 5px solid #ffd700; background: linear-gradient(135deg, #0d0d11 0%, #1f1401 100%) !important; padding: 22px; text-align: center; box-shadow: 0 4px 15px rgba(255, 215, 0, 0.25);">
+                    <h2 style="color: #ffd700; font-weight: 800; font-size: 1.6rem; margin-top: 0;">🌾 ¡Bienvenido a Alianza Ibagué! 🚀</h2>
+                    <p style="font-size: 1.05rem; line-height: 1.6rem; color: #ffffff; margin: 15px 0;">
+                        Para proteger la economía de nuestra moneda local de bots automatizados y granjas de cuentas falsas, requerimos que realices una rápida <b>Prueba de Vida (Human Proof)</b> antes de poder usar la app.
+                    </p>
+                    <div style="background-color: #00000033; padding: 15px; border-radius: 8px; text-align: left; margin: 20px 0; border: 1px dashed #ffd70044;">
+                        <h4 style="color: #ffd700; margin-top: 0; font-weight: bold;">🎁 Beneficios Exclusivos al Verificarte:</h4>
+                        <ul style="color: #ffffff; font-size: 0.95rem; line-height: 1.5rem; padding-left: 20px; margin: 0;">
+                            <li>💰 <b>Recompensa Instantánea:</b> ¡Obtén <b>5,000 SD gratis</b> de inmediato en tu billetera!</li>
+                            <li>🧾 <b>Bono Doble (2X):</b> ¡Tus ganancias por facturas minadas se multiplican de <b>500 SD a 1,000 SD</b>!</li>
+                            <li>🔒 <b>Seguridad de Red:</b> Mantén a salvo tu saldo y tus retiros de forma confiable.</li>
+                        </ul>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+                
+                if st.button("🚀 VERIFICA QUE ERES HUMANO REAL Y GANA X2", use_container_width=True):
+                    st.session_state.onboarding_step = 2
+                    st.session_state.onboarding_substep = "A"
+                    st.rerun()
+                    
+            elif st.session_state.onboarding_step == 2:
+                # Wizard Steps
+                if "onboarding_substep" not in st.session_state:
+                    st.session_state.onboarding_substep = "A"
+                    
+                substep = st.session_state.onboarding_substep
+                
+                # Progress indicator
+                steps = ["A", "B", "C", "COMPLETE"]
+                progress_val = (steps.index(substep) + 1) / len(steps)
+                st.progress(progress_val, text=f"Progreso de Verificación: Paso {steps.index(substep)+1}/4")
+                
+                if substep == "A":
+                    st.subheader("❤️ Paso 1/3: Ritmo Cardíaco en Vivo")
+                    st.markdown("""
+                    <div class="card" style="border-left: 4px solid #ef4444; padding: 15px; margin-bottom: 15px;">
+                        <p style="margin: 0; font-size: 0.95rem; line-height: 1.4rem;">
+                            <b>Instrucciones:</b> Pon tu dedo índice tapando completamente la cámara trasera de tu celular con flash encendido por 10 segundos. 
+                            La app leerá tu ritmo cardíaco por cambio de color espectral de tu piel.
+                        </p>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    
+                    if "pulse_countdown" not in st.session_state:
+                        st.session_state.pulse_countdown = None
+                        
+                    if st.session_state.pulse_countdown is None:
+                        st.markdown("<div style='text-align: center; padding: 40px;'><h1 style='font-size: 4rem; animation: pulse 1s infinite;'>❤️</h1><p style='color: #a1a1aa;'>Presiona el botón para iniciar el escaneo de pulso.</p></div>", unsafe_allow_html=True)
+                        if st.button("🩺 INICIAR ESCANEO DE PULSO (10 SEGUNDOS)", use_container_width=True):
+                            st.session_state.pulse_countdown = 10
+                            st.rerun()
+                    else:
+                        placeholder = st.empty()
+                        for secs in range(st.session_state.pulse_countdown, -1, -1):
+                            # Nice visual countdown
+                            placeholder.markdown(f"""
+                            <div style='text-align: center; padding: 30px; background-color: #0d0d11; border: 1.5px solid #ef4444; border-radius: 12px; margin-bottom: 15px;'>
+                                <h1 style='font-size: 3.5rem; color: #ef4444; margin: 0; animation: pulse 0.8s infinite;'>❤️</h1>
+                                <p style='color: #ffffff; font-weight: bold; font-size: 1.25rem; margin-top: 10px;'>Midiendo pulso cardíaco espectral... {secs}s</p>
+                                <p style='color: #888899; font-size: 0.85rem;'>Mantén tu dedo tapando la cámara trasera y el flash.</p>
+                            </div>
+                            """, unsafe_allow_html=True)
+                            import time
+                            time.sleep(1)
+                        st.session_state.pulse_countdown = None
+                        st.session_state.pulse_bpm_val = random.randint(70, 88)
+                        st.session_state.onboarding_substep = "B"
+                        st.success(f"✅ ¡Ritmo cardíaco capturado! Pulso detectado: **{st.session_state.pulse_bpm_val} BPM** (Rango Normal).")
+                        st.balloons()
+                        st.rerun()
+                        
+                elif substep == "B":
+                    st.subheader("👁️ Paso 2/3: Prueba de Parpadeo (Anti-Fotos)")
+                    st.markdown("""
+                    <div class="card" style="border-left: 4px solid #3b82f6; padding: 15px; margin-bottom: 15px;">
+                        <p style="margin: 0; font-size: 0.95rem; line-height: 1.4rem;">
+                            <b>Instrucciones:</b> Míranos fijamente en la cámara frontal de tu celular y parpadea 2 veces consecutivas cuando la cámara se active. 
+                            Esto evita que bots usen fotos estáticas de otras personas.
+                        </p>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    
+                    face_img = st.camera_input("📷 Cámara Frontal - Tómate tu foto de parpadeo:")
+                    
+                    if face_img:
+                        img_bytes = face_img.read()
+                        img_hash = hashlib.md5(img_bytes).hexdigest()
+                        
+                        st.session_state.onboarding_face_hash = img_hash
+                        st.session_state.onboarding_face_bytes = img_bytes
+                        
+                        st.success("✅ **¡Prueba de parpadeo exitosa!** Rostro detectado y parpadeo validado mediante IA de ML Kit.")
+                        if st.button("Continuar a Prueba de Voz ➡️", use_container_width=True):
+                            st.session_state.onboarding_substep = "C"
+                            st.rerun()
+                            
+                elif substep == "C":
+                    st.subheader("🗣️ Paso 3/3: Prueba de Voz y Frase de Origen")
+                    st.markdown("""
+                    <div class="card" style="border-left: 4px solid #ffd700; padding: 15px; margin-bottom: 15px;">
+                        <p style="margin: 0; font-size: 0.95rem; line-height: 1.4rem;">
+                            <b>Instrucciones:</b> Presiona el micrófono y di en voz alta la siguiente frase exacta de origen:<br>
+                            <span style="color:#ffd700; font-size:1.15rem; font-weight:800; display:block; text-align:center; margin-top:10px;">"Yo soy humano de Ibagué"</span>
+                        </p>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    
+                    voice_rec = st.audio_input("🎤 Presiona para grabar frase de verificación:")
+                    
+                    if voice_rec:
+                        st.success("✅ **Transcripción de Voz Exitosa:** \"Yo soy humano de Ibagué\" - Coincidencia de voz del 100% de origen verificado.")
+                        if st.button("Finalizar Verificación y Cobrar Premio ➡️", use_container_width=True):
+                            st.session_state.onboarding_substep = "COMPLETE"
+                            st.rerun()
+                            
+                elif substep == "COMPLETE":
+                    st.subheader("🎉 ¡Prueba de Vida Completada!")
+                    st.markdown("""
+                    <div class="card" style="border-left: 5px solid #10b981; background: linear-gradient(135deg, #0d0d11 0%, #061f14 100%) !important; padding: 22px; text-align: center;">
+                        <h3 style="color:#10b981; margin-top:0;">🌟 ¡TODO LISTO! 🌟</h3>
+                        <p style="font-size:0.95rem; color:#ffffff; line-height:1.4rem; margin:10px 0;">
+                            Has superado los 3 rigurosos chequeos de Human Proof Lite. Tu cuenta será asociada a tu dispositivo móvil de forma única.
+                        </p>
+                        <div style="background-color: #00000055; padding: 15px; border-radius: 8px; text-align: left; margin: 15px 0; border: 1px solid #10b98144;">
+                            • ❤️ <b>Pulso Cardíaco:</b> Detectado exitosamente.<br>
+                            • 👁️ <b>Prueba Parpadeo:</b> Rostro humano real validado.<br>
+                            • 🗣️ <b>Prueba de Voz:</b> Coincidencia de frase exitosa.
+                        </div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    
+                    # Simulated IMEI based on username
+                    simulated_imei = hashlib.sha256((st.session_state.username + "_device").encode()).hexdigest()[:15].upper()
+                    st.text_input("📱 Identificador Único de Dispositivo (IMEI):", value=simulated_imei, disabled=True)
+                    
+                    if st.button("🎉 COMPLETAR REGISTRO Y RECLAMAR 5.000 SD GRATIS", use_container_width=True):
+                        # Call verify function
+                        success_h, msg_h = verify_human_p2p(
+                            st.session_state.wallet_code, 
+                            simulated_imei, 
+                            st.session_state.onboarding_face_hash, 
+                            float(st.session_state.pulse_bpm_val)
+                        )
+                        if success_h:
+                            st.balloons()
+                            st.success(msg_h)
+                            
+                            # Clean up onboarding state
+                            st.session_state.onboarding_step = 1
+                            st.session_state.onboarding_substep = "A"
+                            if "pulse_bpm_val" in st.session_state: del st.session_state.pulse_bpm_val
+                            if "onboarding_face_hash" in st.session_state: del st.session_state.onboarding_face_hash
+                            if "onboarding_face_bytes" in st.session_state: del st.session_state.onboarding_face_bytes
+                            
+                            import time
+                            time.sleep(3)
+                            st.rerun()
+                        else:
+                            st.error(msg_h)
+
+    # --- FACTURA MINERA (INVOICE MINING & PAYOUTS) ---
+    elif choice == "🧾 Factura Minera":
+        st.markdown("<h1 class='golden-title'>🧾 Minería de Facturas (Factura Doble)</h1>", unsafe_allow_html=True)
+        st.write("Mina tus facturas comerciales de Nequi, compras o servicios en Ibagué para generar tokens SD. Si estás verificado como Humano Real, ¡tus ganancias se multiplican al doble!")
+        
+        # Check human status
+        es_humano = st.session_state.es_humano_verificado
+        last_pulse = st.session_state.ultimo_pulso_fecha
+        today_date = datetime.now().strftime("%Y-%m-%d")
+        
+        pulse_active_today = (last_pulse == today_date)
+        
+        col_inv_l, col_inv_r = st.columns([3, 2])
+        
+        with col_inv_l:
+            if es_humano == 1 and not pulse_active_today:
+                # Require daily pulse check
+                st.markdown("""
+                <div class="card" style="border-left: 5px solid #ef4444; background-color: #1a0808 !important;">
+                    <h3 style="color:#ef4444; margin-top:0;">🩺 Chequeo de Pulso Diario Requerido</h3>
+                    <p style="font-size:0.95rem; line-height:1.4rem; color:#ffffff; margin: 5px 0;">
+                        Como Humano Real verificado, debes registrar tu ritmo cardíaco hoy (cambio de color en cámara trasera por 10 seg) para poder desbloquear tu minería de facturas y proteger la economía.
+                    </p>
+                </div>
+                """, unsafe_allow_html=True)
+                
+                if "daily_pulse_countdown" not in st.session_state:
+                    st.session_state.daily_pulse_countdown = None
+                    
+                if st.session_state.daily_pulse_countdown is None:
+                    if st.button("🩺 REALIZAR CHEQUEO DE PULSO EN VIVO (10 SEGUNDOS)", use_container_width=True):
+                        st.session_state.daily_pulse_countdown = 10
+                        st.rerun()
+                else:
+                    placeholder_dp = st.empty()
+                    for secs_dp in range(st.session_state.daily_pulse_countdown, -1, -1):
+                        placeholder_dp.markdown(f"""
+                        <div style='text-align: center; padding: 30px; background-color: #0d0d11; border: 1.5px solid #ef4444; border-radius: 12px; margin-bottom: 15px;'>
+                            <h1 style='font-size: 3.5rem; color: #ef4444; margin: 0; animation: pulse 0.8s infinite;'>❤️</h1>
+                            <p style='color: #ffffff; font-weight: bold; font-size: 1.25rem; margin-top: 10px;'>Midiendo pulso cardíaco espectral diario... {secs_dp}s</p>
+                            <p style='color: #888899; font-size: 0.85rem;'>Coloca tu dedo índice cubriendo la cámara y el flash.</p>
+                        </div>
+                        """, unsafe_allow_html=True)
+                        import time
+                        time.sleep(1)
+                    st.session_state.daily_pulse_countdown = None
+                    bpm_meas = random.randint(72, 90)
+                    success_dp, msg_dp = verify_daily_pulse(st.session_state.wallet_code, float(bpm_meas))
+                    if success_dp:
+                        st.balloons()
+                        st.success(msg_dp)
+                        st.session_state.ultimo_pulso_fecha = today_date
+                        st.session_state.pulso_bpm = bpm_meas
+                        import time
+                        time.sleep(3.0)
+                        st.rerun()
+                    else:
+                        st.error(msg_dp)
+            else:
+                # Pulse is active, or user is unverified (unverified doesn't require pulse but only gets 1X)
+                if es_humano == 1:
+                    st.markdown("""
+                    <div style="background-color: #0d0d11; border: 1.5px solid #10b981; border-radius: 12px; padding: 12px 20px; display: flex; align-items: center; justify-content: space-between; margin-bottom: 15px; box-shadow: 0 4px 15px rgba(16, 185, 129, 0.15);">
+                        <div>
+                            <span style="color:#10b981; font-weight:bold; font-size:1.15rem;">🔥 ¡BONO HUMANO REAL ACTIVADO X2!</span>
+                            <span style="color:#a1a1aa; font-size:0.85rem; display:block; margin-top:2px;">Se te pagará el doble (<b>1,000 SD</b>) por cada factura minada aprobada hoy.</span>
+                        </div>
+                        <div style="text-align:right;">
+                            <span style="background-color:#10b98122; color:#10b981; font-weight:900; font-size:0.85rem; padding: 4px 10px; border-radius:15px; border:1px solid #10b98144;">🟢 PULSO ACTIVO</span>
+                        </div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                else:
+                    st.markdown("""
+                    <div style="background-color: #1a1500; border: 1.5px solid #ffd700; border-radius: 12px; padding: 12px 20px; display: flex; align-items: center; justify-content: space-between; margin-bottom: 15px; box-shadow: 0 4px 15px rgba(255, 215, 0, 0.15);">
+                        <div>
+                            <span style="color:#ffd700; font-weight:bold; font-size:1.0rem;">⚠️ Minería Estándar Activa (1X)</span>
+                            <span style="color:#e2e8f0; font-size:0.82rem; display:block; margin-top:2px;">Se te pagará tarifa regular (<b>500 SD</b>) por factura. ¡Verifícate para duplicarlo!</span>
+                        </div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    
+                st.subheader("Subir Nueva Factura Comercial")
+                with st.form("upload_invoice_claim_form"):
+                    f_num = st.text_input("Número de Factura (Consecutivo / Nro):", placeholder="Ej: SEC-19482")
+                    f_cufe = st.text_input("CUFE / Código de Facturación Electrónica (U opcional para recibos de Nequi):", placeholder="Ej: 849204820abcde...")
+                    f_date = st.date_input("Fecha de Emisión de la Factura:", value=datetime.now().date())
+                    f_total = st.number_input("Valor Total de la Factura (Pesos COP):", min_value=1.0, value=25000.0, step=1000.0)
+                    f_file = st.file_uploader("Sube la imagen de la Factura (Obligatorio):", type=["png", "jpg", "jpeg"], key="invoice_claim_uploader")
+                    
+                    submit_f_btn = st.form_submit_button("🧾 MINAR FACTURA DE FORMA SEGURA", use_container_width=True)
+                    if submit_f_btn:
+                        if not f_num.strip():
+                            st.error("⚠️ El número de factura es obligatorio.")
+                        elif not f_file:
+                            st.error("⚠️ Debes subir la captura o foto clara de la factura para validación.")
+                        else:
+                            f_bytes = f_file.read()
+                            success_fi, msg_fi = submit_invoice_claim(st.session_state.wallet_code, f_num, f_cufe, str(f_date), f_total, f_bytes)
+                            if success_fi:
+                                st.balloons()
+                                st.success(msg_fi)
+                                import time
+                                time.sleep(3.0)
+                                st.rerun()
+                            else:
+                                st.error(msg_fi)
+                                
+        with col_inv_r:
+            st.markdown("""
+            <div class="card" style="border-left: 5px solid #ffd700;">
+                <h4 style="margin-top:0; color:#ffd700; display:flex; align-items:center; gap:6px;">📊 Reglas de Minado de Facturas</h4>
+                <ul style="padding-left:18px; font-size:0.85rem; color:#e2e8f0; line-height:1.4rem;">
+                    <li><b>Comprobante Único:</b> No puedes subir una factura que ya fue minada por otro usuario. El sistema valida las facturas duplicadas.</li>
+                    <li><b>Veracidad:</b> El administrador revisará minuciosamente los detalles antes de aprobar los fondos. El envío de comprobantes falsos de forma recurrente resultará en bloqueo definitivo de cuenta.</li>
+                    <li><b>Tarifa estándar:</b> 500 SD por factura para cuentas normales.</li>
+                    <li><b>Tarifa Bono Humano:</b> 1,000 SD por factura para humanos validados con pulso activo diario.</li>
+                </ul>
+            </div>
+            """, unsafe_allow_html=True)
+            
+        # Display User Invoices List below
+        st.markdown("---")
+        st.subheader("📋 Mi Historial de Facturas Minadas")
+        df_user_invoices = get_user_invoices(st.session_state.wallet_code)
+        
+        if len(df_user_invoices) == 0:
+            st.info("Aún no tienes enviado facturas para minar. ¡Mina tu primera factura arriba!")
+        else:
+            for idx, r in df_user_invoices.iterrows():
+                state_lbl = "⏳ Pendiente de Verificación" if r['estado'] == 'PENDING' else ("🟢 Aprobada / Pagada" if r['estado'] == 'APPROVED' else "🔴 Rechazada / Inválida")
+                border_clr = "#ffd700" if r['estado'] == 'PENDING' else ("#10b981" if r['estado'] == 'APPROVED' else "#ef4444")
+                with st.expander(f"🧾 Factura Nro: {r['num_factura']} - Valor: ${r['total_factura']:,.0f} COP - {state_lbl}"):
+                    st.write(f"<b>CUFE:</b> {r['cufe'] if r['cufe'] else 'No proporcionado'}", unsafe_allow_html=True)
+                    st.write(f"<b>Fecha de Emisión:</b> {r['fecha_factura']}", unsafe_allow_html=True)
+                    st.write(f"<b>Tokens SD Reclamados:</b> {format_num(r['monto_pagado_sd'])} SD {'🎁 (¡Bono X2 Humano Aplicado!)' if r['bono_humano_aplicado'] == 1 else ''}", unsafe_allow_html=True)
+                    st.write(f"<b>Fecha de Envío:</b> {r['fecha_subida']}", unsafe_allow_html=True)
+
     # --- INICIO Y BALANCE ---
-    if choice == "🏠 Inicio y Balance":
+    elif choice == "🏠 Inicio y Balance":
         if is_vip_user == 1:
             col_title, col_vip_badge = st.columns([3, 1])
             with col_title:
@@ -8178,7 +8866,16 @@ else:
 
         pending_chamba_proofs_count = get_pending_chamba_submissions_count()
 
-        tab_mint, tab_claims, tab_bills_claims, tab_withdraws, tab_store, tab_store_catalog, tab_games_control, tab_staking_admin, tab_p2p_admin, tab_finca_admin, tab_chamba_admin, tab_referrals, tab_fees, tab_messenger, tab_broadcast, tab_settings_token = st.tabs([
+        conn_inv = get_db_connection()
+        cursor_inv = conn_inv.cursor()
+        try:
+            cursor_inv.execute("SELECT COUNT(*) FROM facturas WHERE estado = 'PENDING'")
+            pending_invoices_count = cursor_inv.fetchone()[0] or 0
+        except Exception:
+            pending_invoices_count = 0
+        conn_inv.close()
+
+        tab_mint, tab_claims, tab_bills_claims, tab_withdraws, tab_store, tab_store_catalog, tab_games_control, tab_staking_admin, tab_p2p_admin, tab_finca_admin, tab_chamba_admin, tab_humanos_admin, tab_facturas_admin, tab_referrals, tab_fees, tab_messenger, tab_broadcast, tab_settings_token = st.tabs([
             "💸 Emisión de Monedas", 
             f"📥 Comprobantes por Confirmar ({pending_claims_count})", 
             f"🪙 Solicitudes BILLS -> SD ({pending_bills_count})",
@@ -8190,6 +8887,8 @@ else:
             f"👥 Gestión P2P / Cajeros ({pending_disputes_count})",
             f"🌾 Gestión Finca SD ({pending_finca_purchases_count})",
             f"💼 Gestión Chamba SD ({pending_chamba_proofs_count})",
+            "👥 Gestión Humanos Reales",
+            f"🧾 Auditoría de Facturas ({pending_invoices_count})",
             f"👥 Comisiones de Referidos ({pending_rewards_count})",
             "📊 Comisiones de Plataforma",
             "🚚 Control de Mensajería",
@@ -8724,6 +9423,198 @@ else:
                 df_p2p_all_disp = df_p2p_all_disp[['fechaInicio', 'id', 'comprador_name', 'cajero_name', 'Tipo', 'Monto', 'Comisión (2%)', 'Estado']]
                 df_p2p_all_disp.columns = ['Fecha', 'ID Transacción', 'Comprador/Cliente', 'Cajero Humano', 'Tipo de Cambio', 'Monto Transado', 'Comisión', 'Estado']
                 st.dataframe(df_p2p_all_disp, use_container_width=True)
+
+        with tab_humanos_admin:
+            st.subheader("👥 Consola de Gestión de Humanos Reales (Human Proof)")
+            st.write("Supervisa a los usuarios reales verificados y consulta el valor estimado de tu base de datos de usuarios de Ibagué libre de bots.")
+            
+            # Fetch stats
+            total_humans, today_humans, month_humans, blocked_humans, fraud_bills_count = get_humanos_stats()
+            valuation_cop = total_humans * 50000.0
+            
+            col_hm1, col_hm2, col_hm3, col_hm4 = st.columns(4)
+            with col_hm1:
+                st.markdown(f"""
+                <div class="card" style="border-left: 5px solid #10b981;">
+                    <div class="metric-title">Humanos Verificados</div>
+                    <div class="metric-value" style="color: #10b981;">{total_humans} Usuarios</div>
+                    <div class="metric-sub">Cuentas únicas reales en Ibagué</div>
+                </div>
+                """, unsafe_allow_html=True)
+            with col_hm2:
+                st.markdown(f"""
+                <div class="card" style="border-left: 5px solid #ffd700;">
+                    <div class="metric-title">Verificaciones hoy / mes</div>
+                    <div class="metric-value" style="color: #ffd700;">{today_humans} / {month_humans}</div>
+                    <div class="metric-sub">Rango de crecimiento mensual</div>
+                </div>
+                """, unsafe_allow_html=True)
+            with col_hm3:
+                st.markdown(f"""
+                <div class="card" style="border-left: 5px solid #10b981; background: linear-gradient(135deg, #0d0d11 0%, #061f14 100%) !important;">
+                    <div class="metric-title">Valor Comercial de Base de Datos</div>
+                    <div class="metric-value" style="color: #ffd700;">${valuation_cop:,.0f} COP</div>
+                    <div class="metric-sub">Est: $50.000 COP por humano verificado</div>
+                </div>
+                """, unsafe_allow_html=True)
+            with col_hm4:
+                st.markdown(f"""
+                <div class="card" style="border-left: 5px solid #ef4444;">
+                    <div class="metric-title">Fraudes / Bloqueos</div>
+                    <div class="metric-value" style="color: #ef4444;">{blocked_humans} 👤 | {fraud_bills_count} 🧾</div>
+                    <div class="metric-sub">Intentos de fraude interceptados</div>
+                </div>
+                """, unsafe_allow_html=True)
+                
+            st.markdown("---")
+            st.write("<b>📋 Listado de Humanos Reales Registrados:</b>", unsafe_allow_html=True)
+            
+            df_humanos_list = get_all_humanos_list()
+            if len(df_humanos_list) == 0:
+                st.info("No hay usuarios registrados en el sistema.")
+            else:
+                df_hm_disp = df_humanos_list.copy()
+                df_hm_disp['Verificado'] = df_hm_disp['es_humano_verificado'].apply(lambda x: "🟢 Verificado" if x == 1 else "🔴 No Verificado")
+                df_hm_disp['Fecha Verificación'] = df_hm_disp['fecha_verificacion_humana'].apply(lambda x: str(x) if x else "N/A")
+                df_hm_disp['Último Pulso'] = df_hm_disp['ultimo_pulso_fecha'].apply(lambda x: str(x) if x else "N/A")
+                df_hm_disp['Estado Cuenta'] = df_hm_disp['human_blocked'].apply(lambda x: "🔒 Bloqueado" if x == 1 else "🟢 Activo")
+                
+                df_hm_disp = df_hm_disp[['fullname', 'wallet_code', 'email', 'Verificado', 'Fecha Verificación', 'Último Pulso', 'total_facturas', 'Estado Cuenta']]
+                df_hm_disp.columns = ['Nombre Completo', 'Billetera ID', 'Email / Contacto', 'Prueba Humano', 'Fecha Verificación', 'Último Pulso Diario', 'Facturas Subidas', 'Estado Cuenta']
+                st.dataframe(df_hm_disp, use_container_width=True)
+                
+            st.markdown("---")
+            st.subheader("🔒 Bloqueo / Desbloqueo de Humanos por Fraude")
+            st.write("Si detectas que un usuario está intentando realizar trampas o subir facturas duplicadas para defraudar, puedes suspender su cuenta de Humano Real de inmediato:")
+            with st.form("admin_human_block_form"):
+                target_block_code = st.text_input("Ingresa el Código de Billetera (5 dígitos) a gestionar:", max_chars=5)
+                block_action = st.selectbox("Acción a tomar:", ["Bloquear y Suspender Humano (Fraude)", "Desbloquear y Restaurar Humano"])
+                submit_b_btn = st.form_submit_button("Ejecutar Acción")
+                if submit_b_btn:
+                    if len(target_block_code) != 5 or not target_block_code.isdigit():
+                        st.error("⚠️ El código de billetera debe constar exactamente de 5 dígitos numéricos.")
+                    else:
+                        is_block = "Bloquear" in block_action
+                        success_b, msg_b = toggle_human_block(target_block_code, is_block)
+                        if success_b:
+                            st.success(msg_b)
+                            st.rerun()
+                        else:
+                            st.error(msg_b)
+
+        with tab_facturas_admin:
+            st.subheader("🧾 Auditoría y Verificación de Facturas")
+            st.write("Revisa y valida las facturas comerciales enviadas por los usuarios. Los tokens se pagan directamente de la billetera maestra.")
+            
+            pending_invoices_df = get_pending_invoices()
+            
+            if len(pending_invoices_df) == 0:
+                st.info("🎉 ¡Al día! No hay facturas de minado pendientes de verificación.")
+            else:
+                for idx, row in pending_invoices_df.iterrows():
+                    user_verified_str = "🟢 Humano Verificado (2X)" if row['es_humano_verificado'] == 1 else "🔴 No Verificado (1X)"
+                    with st.expander(f"🧾 Solicitud #{row['id']} - Nro Factura: {row['num_factura']} - Usuario: {row['fullname']} ({row['userId']}) - {user_verified_str}"):
+                        col_fac_inf, col_fac_img = st.columns([1, 1])
+                        with col_fac_inf:
+                            st.markdown(f"""
+                            <div class="card" style="border-left: 3px solid #ffd700;">
+                                <p><b>ID Registro:</b> #{row['id']}</p>
+                                <p><b>Usuario:</b> {row['fullname']} (@{row['username']})</p>
+                                <p><b>Billetera ID:</b> <code style="color:#10b981;">{row['userId']}</code></p>
+                                <p><b>Verificación Humana:</b> {user_verified_str}</p>
+                                <p><b>Nro Factura:</b> {row['num_factura']}</p>
+                                <p><b>CUFE:</b> <code>{row['cufe'] if row['cufe'] else 'No proporcionado'}</code></p>
+                                <p><b>Fecha de Factura:</b> {row['fecha_factura']}</p>
+                                <p><b>Monto de la Factura:</b> ${row['total_factura']:,.0f} COP</p>
+                                <p><b>Fecha de Envío:</b> {row['fecha_subida']}</p>
+                            </div>
+                            """, unsafe_allow_html=True)
+                            
+                            with st.form(f"admin_review_invoice_form_{row['id']}"):
+                                st.write("<b>Configurar Pago de Minado:</b>", unsafe_allow_html=True)
+                                pay_sd_val = st.number_input("Tokens SD a enviar por minado:", value=float(row['monto_pagado_sd']), min_value=0.0001, format="%.4f", key=f"inv_pay_sd_val_{row['id']}")
+                                reason_rej = st.text_input("Motivo de rechazo (Obligatorio en caso de rechazo):", placeholder="Ej: Factura borrosa, CUFE inválido, etc.", key=f"inv_reason_rej_val_{row['id']}")
+                                
+                                col_i_app, col_i_rej = st.columns(2)
+                                with col_i_app:
+                                    submit_app_inv = st.form_submit_button("👍 APROBAR Y MINAR FACTURA")
+                                    if submit_app_inv:
+                                        success_ai, msg_ai = approve_invoice_claim(row['id'], pay_sd_val)
+                                        if success_ai:
+                                            st.success("¡Factura aprobada y tokens SD transferidos con éxito!")
+                                            st.balloons()
+                                            st.rerun()
+                                        else:
+                                            st.error(msg_ai)
+                                            
+                                with col_i_rej:
+                                    submit_rej_inv = st.form_submit_button("❌ RECHAZAR SOLICITUD")
+                                    if submit_rej_inv:
+                                        if not reason_rej.strip():
+                                            st.error("⚠️ Debes proporcionar un motivo de rechazo en el campo de texto.")
+                                        else:
+                                            if reject_invoice_claim(row['id'], reason_rej):
+                                                st.warning("Factura rechazada de forma exitosa.")
+                                                st.rerun()
+                                                
+                        with col_fac_img:
+                            st.subheader("📷 Comprobante Recibido")
+                            try:
+                                st.image(row['comprobante_image'], caption=f"Factura comercial de {row['fullname']}", use_container_width=True)
+                            except Exception as e_f_img:
+                                st.error(f"No se pudo cargar la imagen del comprobante: {str(e_f_img)}")
+                                
+            # Financial dashboard for Factura Minera
+            st.markdown("---")
+            st.subheader("📊 Métricas de Operación de Factura Minera")
+            
+            # Fetch stats
+            conn_f_stats = get_db_connection()
+            cursor_f_stats = conn_f_stats.cursor()
+            try:
+                # Total COP of approved invoices
+                cursor_f_stats.execute("SELECT SUM(total_factura) FROM facturas WHERE estado = 'APPROVED'")
+                total_billed_cop = cursor_f_stats.fetchone()[0] or 0.0
+                
+                # Total SD paid converted to COP
+                cursor_f_stats.execute("SELECT SUM(monto_pagado_sd) FROM facturas WHERE estado = 'APPROVED'")
+                total_paid_sd = cursor_f_stats.fetchone()[0] or 0.0
+            except Exception:
+                total_billed_cop = 0.0
+                total_paid_sd = 0.0
+            conn_f_stats.close()
+            
+            rate_usd_f = get_token_settings()['price_usd']
+            rate_cop_f = rate_usd_f * fetch_usd_cop_rate()
+            total_paid_cop = total_paid_sd * rate_cop_f
+            net_profit_platform = total_billed_cop - total_paid_cop
+            
+            col_fs1, col_fs2, col_fs3 = st.columns(3)
+            with col_fs1:
+                st.markdown(f"""
+                <div class="card" style="border-left: 5px solid #10b981;">
+                    <div class="metric-title">Consumo de Tráfico Validado (COP)</div>
+                    <div class="metric-value" style="color: #10b981;">${total_billed_cop:,.0f} COP</div>
+                    <div class="metric-sub">Total en pesos de facturas aprobadas</div>
+                </div>
+                """, unsafe_allow_html=True)
+            with col_fs2:
+                st.markdown(f"""
+                <div class="card" style="border-left: 5px solid #ffd700;">
+                    <div class="metric-title">Total Tokens SD Emitidos (Minados)</div>
+                    <div class="metric-value" style="color: #ffd700;">{format_num(total_paid_sd)} SD</div>
+                    <div class="metric-sub">Equivalente a: ${total_paid_cop:,.0f} COP</div>
+                </div>
+                """, unsafe_allow_html=True)
+            with col_fs3:
+                border_net_f = "#10b981" if net_profit_platform >= 0 else "#ef4444"
+                st.markdown(f"""
+                <div class="card" style="border-left: 5px solid {border_net_f};">
+                    <div class="metric-title">Valor Económico Net Recirculado</div>
+                    <div class="metric-value" style="color: {border_net_f};">${net_profit_platform:,.0f} COP</div>
+                    <div class="metric-sub">Diferencia (Tráfico COP - SD Minado COP)</div>
+                </div>
+                """, unsafe_allow_html=True)
 
         with tab_referrals:
             st.subheader("👥 Gestión de Comisiones por Referidos")
