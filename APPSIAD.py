@@ -30,7 +30,7 @@ def clean_html(html_str):
 
 # Configuración de página de Streamlit
 st.set_page_config(
-    page_title="Alianza CryptoWallet v71",
+    page_title="Alianza CryptoWallet v72",
     page_icon="💼",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -446,6 +446,7 @@ def init_db():
             status TEXT DEFAULT 'ACTIVE'
         )
     """)
+
     # Tabla: user_unlocked_tips
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS user_unlocked_tips (
@@ -455,6 +456,77 @@ def init_db():
             unlocked_at DATETIME DEFAULT CURRENT_TIMESTAMP
         )
     """)
+
+    # Tabla de cajeros P2P (Módulo Cajeros Humanos)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS cajeros (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            userId TEXT UNIQUE,
+            saldoCOP REAL,
+            saldoSD REAL,
+            metodosPago TEXT,
+            contactoPago TEXT,
+            lat REAL,
+            lng REAL,
+            activo INTEGER DEFAULT 0,
+            rating REAL DEFAULT 5.0,
+            totalTransacciones INTEGER DEFAULT 0
+        )
+    """)
+
+    # Tabla de transacciones P2P
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS transacciones_p2p (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            compradorId TEXT,
+            cajeroId TEXT,
+            tipo TEXT,
+            monto REAL,
+            comision REAL,
+            comprobanteUrl BLOB,
+            estado TEXT DEFAULT 'PENDING',
+            fechaInicio DATETIME DEFAULT CURRENT_TIMESTAMP,
+            fechaFin DATETIME
+        )
+    """)
+
+    # Tabla de mensajes de chat de disputas y salas P2P
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS p2p_chat_messages (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            transaction_id INTEGER,
+            sender_code TEXT,
+            message TEXT,
+            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
+    # Insertar cajeros por defecto de prueba para poblar el mapa
+    try:
+        cursor.execute("SELECT COUNT(*) FROM cajeros")
+        if cursor.fetchone()[0] == 0:
+            # Crear los usuarios cajeros si no existen
+            for u_code, username, fullname, balance, balance_cop, nequi in [
+                ('11111', 'cajero_jorge', 'Jorge Pérez (Cajero Alianza)', 1000.0, 500000.0, '3111234567'),
+                ('22222', 'cajera_maria', 'María Gómez (Cajera Alianza)', 1500.0, 800000.0, '3221234567')
+            ]:
+                cursor.execute("SELECT 1 FROM users WHERE wallet_code = ?", (u_code,))
+                if not cursor.fetchone():
+                    hashed_pw = hashlib.sha256("123456".encode()).hexdigest()
+                    cursor.execute("""
+                        INSERT INTO users (username, password, fullname, email, wallet_code, balance, is_admin, balance_cop, nequi_number)
+                        VALUES (?, ?, ?, 'cajero@alliance.com', ?, ?, 0, ?, ?)
+                    """, (username, hashed_pw, fullname, u_code, balance, balance_cop, nequi))
+            
+            # Registrar en la tabla de cajeros de la polla
+            cursor.execute("""
+                INSERT OR IGNORE INTO cajeros (userId, saldoCOP, saldoSD, metodosPago, contactoPago, lat, lng, activo, rating, totalTransacciones) VALUES
+                ('11111', 500000.0, 1000.0, 'Nequi,Bancolombia', 'Nequi: 3111234567', 4.6120, -74.0850, 1, 4.8, 12),
+                ('22222', 800000.0, 1500.0, 'Nequi,Daviplata,Efectivo', 'Nequi: 3221234567', 4.6070, -74.0780, 1, 4.9, 25)
+            """)
+    except Exception:
+        pass
+
     
     try:
         cursor.execute("ALTER TABLE store_items ADD COLUMN delivery_fee_sd REAL DEFAULT 0.0")
@@ -1230,6 +1302,308 @@ def reject_bills_purchase(request_id):
         return True
     conn.close()
     return False
+
+
+# --- SISTEMA DE CAJEROS HUMANOS P2P ---
+
+def get_cajero_details(user_code):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT id, userId, saldoCOP, saldoSD, metodosPago, contactoPago, lat, lng, activo, rating, totalTransacciones 
+        FROM cajeros WHERE userId = ?
+    """, (user_code,))
+    res = cursor.fetchone()
+    conn.close()
+    if res:
+        return {
+            "id": res[0],
+            "userId": res[1],
+            "saldoCOP": res[2],
+            "saldoSD": res[3],
+            "metodosPago": res[4],
+            "contactoPago": res[5],
+            "lat": res[6],
+            "lng": res[7],
+            "activo": bool(res[8]),
+            "rating": res[9] or 5.0,
+            "totalTransacciones": res[10] or 0
+        }
+    return None
+
+def register_or_update_cajero(user_code, saldo_cop, saldo_sd, metodos_pago, contacto_pago, lat, lng, activo):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT 1 FROM cajeros WHERE userId = ?", (user_code,))
+    exists = cursor.fetchone()
+    if exists:
+        cursor.execute("""
+            UPDATE cajeros 
+            SET saldoCOP = ?, saldoSD = ?, metodosPago = ?, contactoPago = ?, lat = ?, lng = ?, activo = ? 
+            WHERE userId = ?
+        """, (saldo_cop, saldo_sd, metodos_pago, contacto_pago, lat, lng, 1 if activo else 0, user_code))
+    else:
+        cursor.execute("""
+            INSERT INTO cajeros (userId, saldoCOP, saldoSD, metodosPago, contactoPago, lat, lng, activo, rating, totalTransacciones)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 5.0, 0)
+        """, (user_code, saldo_cop, saldo_sd, metodos_pago, contacto_pago, lat, lng, 1 if activo else 0))
+    conn.commit()
+    conn.close()
+    return True
+
+def get_active_cajeros(user_lat=None, user_lng=None, max_distance_km=5.0):
+    conn = get_db_connection()
+    df = pd.read_sql_query("""
+        SELECT c.id, c.userId, c.saldoCOP, c.saldoSD, c.metodosPago, c.contactoPago, c.lat, c.lng, c.activo, c.rating, c.totalTransacciones, u.fullname, u.username
+        FROM cajeros c
+        JOIN users u ON c.userId = u.wallet_code
+        WHERE c.activo = 1
+    """, conn)
+    conn.close()
+    
+    if len(df) == 0:
+        return []
+        
+    cajeros_list = []
+    for idx, row in df.iterrows():
+        # Calculate distance
+        distance_km = 0.0
+        if user_lat is not None and user_lng is not None and row['lat'] is not None and row['lng'] is not None:
+            import math
+            dlat = row['lat'] - user_lat
+            dlng = row['lng'] - user_lng
+            distance_km = math.sqrt(dlat**2 + dlng**2) * 111.0
+            
+        if user_lat is not None and user_lng is not None and distance_km > max_distance_km:
+            continue
+            
+        cajeros_list.append({
+            "id": row['id'],
+            "userId": row['userId'],
+            "saldoCOP": row['saldoCOP'],
+            "saldoSD": row['saldoSD'],
+            "metodosPago": row['metodosPago'],
+            "contactoPago": row['contactoPago'],
+            "lat": row['lat'],
+            "lng": row['lng'],
+            "activo": bool(row['activo']),
+            "rating": row['rating'] or 5.0,
+            "totalTransacciones": row['totalTransacciones'] or 0,
+            "fullname": row['fullname'],
+            "username": row['username'],
+            "distance": round(distance_km, 2)
+        })
+        
+    cajeros_list = sorted(cajeros_list, key=lambda x: x['distance'])
+    return cajeros_list
+
+def create_p2p_transaction(comprador_id, cajero_id, tipo, monto, metodo_pago):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    comision = monto * 0.02
+    cursor.execute("""
+        INSERT INTO transacciones_p2p (compradorId, cajeroId, tipo, monto, comision, estado)
+        VALUES (?, ?, ?, ?, ?, 'PENDING')
+    """, (comprador_id, cajero_id, tipo, monto, comision))
+    tx_id = cursor.lastrowid
+    conn.commit()
+    conn.close()
+    
+    # Notify teller
+    add_notification(cajero_id, f"🙋‍♂️ <b>¡Nueva solicitud P2P recibida!</b> El usuario <b>{comprador_id}</b> solicita <b>{format_num(monto)} SD</b> para {tipo.replace('_', ' ')} vía <b>{metodo_pago}</b>. Ve al menú de Cajeros para responder.")
+    return tx_id
+
+def send_p2p_chat_message(transaction_id, sender_code, message):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO p2p_chat_messages (transaction_id, sender_code, message)
+        VALUES (?, ?, ?)
+    """, (transaction_id, sender_code, message))
+    conn.commit()
+    conn.close()
+    return True
+
+def get_p2p_chat_messages(transaction_id):
+    conn = get_db_connection()
+    df = pd.read_sql_query("""
+        SELECT m.id, m.transaction_id, m.sender_code, m.message, m.timestamp, u.fullname
+        FROM p2p_chat_messages m
+        JOIN users u ON m.sender_code = u.wallet_code
+        WHERE m.transaction_id = ?
+        ORDER BY m.timestamp ASC
+    """, conn, params=(transaction_id,))
+    conn.close()
+    return df
+
+def get_p2p_transaction_details(tx_id):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT t.id, t.compradorId, t.cajeroId, t.tipo, t.monto, t.comision, t.comprobanteUrl, t.estado, t.fechaInicio, t.fechaFin,
+               u1.fullname as comprador_name, u2.fullname as cajero_name
+        FROM transacciones_p2p t
+        JOIN users u1 ON t.compradorId = u1.wallet_code
+        JOIN users u2 ON t.cajeroId = u2.wallet_code
+        WHERE t.id = ?
+    """, (tx_id,))
+    res = cursor.fetchone()
+    conn.close()
+    if res:
+        return {
+            "id": res[0],
+            "compradorId": res[1],
+            "cajeroId": res[2],
+            "tipo": res[3],
+            "monto": res[4],
+            "comision": res[5],
+            "comprobanteUrl": res[6],
+            "estado": res[7],
+            "fechaInicio": res[8],
+            "fechaFin": res[9],
+            "comprador_name": res[10],
+            "cajero_name": res[11]
+        }
+    return None
+
+def update_p2p_transaction_status(tx_id, new_status, comprobante_bytes=None):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    if comprobante_bytes:
+        cursor.execute("""
+            UPDATE transacciones_p2p SET estado = ?, comprobanteUrl = ? WHERE id = ?
+        """, (new_status, comprobante_bytes, tx_id))
+    else:
+        cursor.execute("""
+            UPDATE transacciones_p2p SET estado = ? WHERE id = ?
+        """, (new_status, tx_id))
+    
+    if new_status in ["FINALIZADO", "CANCELLED", "RECHAZADA"]:
+        cursor.execute("""
+            UPDATE transacciones_p2p SET fechaFin = CURRENT_TIMESTAMP WHERE id = ?
+        """, (tx_id,))
+        
+    conn.commit()
+    conn.close()
+    return True
+
+def finalize_p2p_transaction_transfer(tx_id):
+    tx = get_p2p_transaction_details(tx_id)
+    if not tx or tx["estado"] != "FINALIZADO":
+        update_p2p_transaction_status(tx_id, "FINALIZADO")
+        tx = get_p2p_transaction_details(tx_id)
+        
+    comprador_id = tx["compradorId"]
+    cajero_id = tx["cajeroId"]
+    tipo = tx["tipo"]
+    monto = tx["monto"]
+    comision = tx["comision"]
+    monto_neto = monto - comision
+    
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        if tipo == "COMPRAR_SD": 
+            cursor.execute("SELECT balance FROM users WHERE wallet_code = ?", (cajero_id,))
+            tel_bal = cursor.fetchone()[0]
+            if tel_bal < monto:
+                conn.close()
+                return False, f"El cajero no tiene suficientes tokens (Requiere {format_num(monto)} SD)."
+            
+            cursor.execute("UPDATE users SET balance = balance - ? WHERE wallet_code = ?", (monto, cajero_id))
+            cursor.execute("UPDATE users SET balance = balance + ? WHERE wallet_code = ?", (monto_neto, comprador_id))
+            cursor.execute("UPDATE users SET balance = balance + ? WHERE wallet_code = '99999'", (comision,))
+            
+        else: 
+            cursor.execute("SELECT balance FROM users WHERE wallet_code = ?", (comprador_id,))
+            comp_bal = cursor.fetchone()[0]
+            if comp_bal < monto:
+                conn.close()
+                return False, f"El vendedor no tiene suficientes tokens (Requiere {format_num(monto)} SD)."
+                
+            cursor.execute("UPDATE users SET balance = balance - ? WHERE wallet_code = ?", (monto, comprador_id))
+            cursor.execute("UPDATE users SET balance = balance + ? WHERE wallet_code = ?", (monto_neto, cajero_id))
+            cursor.execute("UPDATE users SET balance = balance + ? WHERE wallet_code = '99999'", (comision,))
+            
+        sender = cajero_id if tipo == "COMPRAR_SD" else comprador_id
+        receiver = comprador_id if tipo == "COMPRAR_SD" else cajero_id
+        cursor.execute("""
+            INSERT INTO transactions (sender_code, receiver_code, amount)
+            VALUES (?, ?, ?)
+        """, (sender, receiver, monto_neto))
+        
+        cursor.execute("""
+            INSERT INTO transactions (sender_code, receiver_code, amount)
+            VALUES (?, '99999_P2P_FEE', ?)
+        """, (sender, comision))
+        
+        conn.commit()
+        conn.close()
+        
+        add_notification(comprador_id, f"🟢 <b>¡Transacción P2P Finalizada!</b> Has recibido <b>{format_num(monto_neto)} SD</b> (Comisión de plataforma del 2% deducida).")
+        add_notification(cajero_id, f"🟢 <b>¡Transacción P2P Finalizada!</b> Se completó el cambio por <b>{format_num(monto)} SD</b> de forma exitosa.")
+        return True, "Transacción finalizada y tokens transferidos con éxito."
+    except Exception as e:
+        conn.rollback()
+        conn.close()
+        return False, f"Error al procesar transferencia P2P: {str(e)}"
+
+def submit_p2p_rating(tx_id, rater_code, rated_code, stars):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT rating, totalTransacciones FROM cajeros WHERE userId = ?", (rated_code,))
+    caj_row = cursor.fetchone()
+    if caj_row:
+        current_rating = caj_row[0] or 5.0
+        total_txs = caj_row[1] or 0
+        new_total_txs = total_txs + 1
+        new_rating = ((current_rating * total_txs) + stars) / new_total_txs
+        cursor.execute("""
+            UPDATE cajeros 
+            SET rating = ?, totalTransacciones = ? 
+            WHERE userId = ?
+        """, (round(new_rating, 2), new_total_txs, rated_code))
+        conn.commit()
+    conn.close()
+    return True
+
+def get_p2p_transactions_summary():
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    cursor.execute("""
+        SELECT SUM(comision) FROM transacciones_p2p 
+        WHERE estado = 'FINALIZADO' AND DATE(fechaInicio) = DATE('now')
+    """)
+    day_fees = cursor.fetchone()[0] or 0.0
+    
+    cursor.execute("""
+        SELECT SUM(comision) FROM transacciones_p2p 
+        WHERE estado = 'FINALIZADO' AND fechaInicio >= datetime('now', '-7 days')
+    """)
+    week_fees = cursor.fetchone()[0] or 0.0
+    
+    cursor.execute("""
+        SELECT SUM(comision) FROM transacciones_p2p 
+        WHERE estado = 'FINALIZADO' AND fechaInicio >= datetime('now', '-30 days')
+    """)
+    month_fees = cursor.fetchone()[0] or 0.0
+    
+    conn.close()
+    return day_fees, week_fees, month_fees
+
+def get_all_p2p_transactions():
+    conn = get_db_connection()
+    df = pd.read_sql_query("""
+        SELECT t.id, t.compradorId, t.cajeroId, t.tipo, t.monto, t.comision, t.comprobanteUrl, t.estado, t.fechaInicio,
+               u1.fullname as comprador_name, u2.fullname as cajero_name
+        FROM transacciones_p2p t
+        JOIN users u1 ON t.compradorId = u1.wallet_code
+        JOIN users u2 ON t.cajeroId = u2.wallet_code
+        ORDER BY t.fechaInicio DESC
+    """, conn)
+    conn.close()
+    return df
 
 # --- LLAMADOS A API Y CACHÉ ---
 
@@ -3443,7 +3817,7 @@ st.markdown(f"""
 
 if not st.session_state.logged_in:
     st.sidebar.title("🔐 Alianza CryptoWallet")
-    st.sidebar.markdown("<div style='background-color: #1e293b; padding: 6px 12px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 15px; text-align: center;'><span style='color: #ffd700; font-size: 0.85rem; font-weight: bold;'>🚀 Versión de la App: v71</span></div>", unsafe_allow_html=True)
+    st.sidebar.markdown("<div style='background-color: #1e293b; padding: 6px 12px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 15px; text-align: center;'><span style='color: #ffd700; font-size: 0.85rem; font-weight: bold;'>🚀 Versión de la App: v72</span></div>", unsafe_allow_html=True)
     menu = st.sidebar.selectbox("Seleccione una opción", ["Iniciar Sesión", "Registrarse"])
     
     if menu == "Iniciar Sesión":
@@ -3511,7 +3885,7 @@ if not st.session_state.logged_in:
 else:
     # Sidebar de usuario conectado con toques dorados
     st.sidebar.markdown(f"<h2 class='golden-title'>👋 {st.session_state.fullname}</h2>", unsafe_allow_html=True)
-    st.sidebar.markdown("<div style='background-color: #1e293b; padding: 6px 12px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 15px; text-align: center;'><span style='color: #ffd700; font-size: 0.85rem; font-weight: bold;'>🚀 Versión de la App: v71</span></div>", unsafe_allow_html=True)
+    st.sidebar.markdown("<div style='background-color: #1e293b; padding: 6px 12px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 15px; text-align: center;'><span style='color: #ffd700; font-size: 0.85rem; font-weight: bold;'>🚀 Versión de la App: v72</span></div>", unsafe_allow_html=True)
     st.sidebar.markdown(f"**Billetera ID (Código):** `{st.session_state.wallet_code}`")
     
     # Obtener el número de notificaciones pendientes
@@ -3541,7 +3915,7 @@ else:
     balance_usd = balance * token_price_usd
     balance_cop_equiv = balance_usd * usd_cop
     
-    nav_options = ["🏠 Inicio y Balance", "💸 Enviar SD", "📥 Comprar SD", "🔄 Swap y Retiros", "⛏️ Minería SIAD", "🛍️ Tienda Alianza", "🎮 Juegos", "🚚 Mensajería Alianza", "👥 Mis Referidos", notif_label, "👤 Mi Perfil", "🛡️ Términos y Seguridad"]
+    nav_options = ["🏠 Inicio y Balance", "💸 Enviar SD", "📥 Comprar SD", "🔄 Swap y Retiros", "⛏️ Minería SIAD", "🛍️ Tienda Alianza", "🎮 Juegos", "🚚 Mensajería Alianza", "👥 Cajeros P2P", "👥 Mis Referidos", notif_label, "👤 Mi Perfil", "🛡️ Términos y Seguridad"]
     
     # El checkbox de Modo Propietario ahora es exclusivo para la cuenta del propietario de la app (@admin) o wallet_code '99999'
     is_owner_user = (st.session_state.username == 'admin' or st.session_state.wallet_code == '99999' or st.session_state.is_admin)
@@ -5712,8 +6086,361 @@ else:
 
 
 
+
+    # --- SECCIÓN: CAJEROS HUMANOS P2P ---
+    elif choice == "👥 Cajeros P2P":
+        st.markdown("<h1 class='golden-title'>👥 Cajeros Humanos SD (P2P)</h1>", unsafe_allow_html=True)
+        st.write("Conviértete en cajero para ganar comisiones o busca cajeros cerca de ti para recargar o vender tus tokens SIAD (SD) por pesos colombianos (COP) de forma segura y directa.")
+        
+        # Check active transactions count to show on the tab title
+        conn_p2p_c = get_db_connection()
+        cursor_p2p_c = conn_p2p_c.cursor()
+        cursor_p2p_c.execute("""
+            SELECT COUNT(*) FROM transacciones_p2p 
+            WHERE (compradorId = ? OR cajeroId = ?) AND estado IN ('PENDING', 'EN_PROCESO', 'EN_DISPUTA')
+        """, (st.session_state.wallet_code, st.session_state.wallet_code))
+        active_p2p_txs_count = cursor_p2p_c.fetchone()[0] or 0
+        conn_p2p_c.close()
+        
+        p2p_tab_label = f"💬 Sala de Transacción ({active_p2p_txs_count})" if active_p2p_txs_count > 0 else "💬 Sala de Transacción"
+        
+        tab_ser_cajero, tab_buscar_cajero, tab_sala_tx = st.tabs([
+            "🙋‍♂️ Ser Cajero",
+            "🔍 Cajeros Cerca de Ti",
+            p2p_tab_label
+        ])
+        
+        # ----------------- PESTAÑA 1: SER CAJERO -----------------
+        with tab_ser_cajero:
+            st.subheader("🙋‍♂️ Configuración de mi Perfil de Cajero")
+            st.write("Completa los datos de tu fondo disponible, métodos de pago aceptados y tu ubicación para aparecer activo en el mapa de cambios de la comunidad.")
+            
+            caj_det = get_cajero_details(st.session_state.wallet_code)
+            
+            # Default values
+            default_cop = float(caj_det["saldoCOP"]) if caj_det else 100000.0
+            default_sd = float(caj_det["saldoSD"]) if caj_det else 100.0
+            
+            # Available methods
+            all_methods = ["Nequi", "Bancolombia", "Daviplata", "Efectivo"]
+            if caj_det and caj_det["metodosPago"]:
+                default_methods = [m.strip() for m in caj_det["metodosPago"].split(",") if m.strip() in all_methods]
+            else:
+                default_methods = ["Nequi"]
+                
+            default_contacto = caj_det["contactoPago"] if caj_det else ""
+            default_activo = caj_det["activo"] if caj_det else False
+            default_lat = caj_det["lat"] if caj_det else 4.6097
+            default_lng = caj_det["lng"] if caj_det else -74.0817
+            
+            with st.form("ser_cajero_form"):
+                col_caj_b1, col_caj_b2 = st.columns(2)
+                with col_caj_b1:
+                    saldo_cop = st.number_input("💵 Saldo en COP disponible para cambiar ($)", min_value=0.0, value=default_cop, step=10000.0, format="%.2f")
+                    saldo_sd = st.number_input("🪙 Saldo en SD disponible para cambiar", min_value=0.0, value=default_sd, step=10.0, format="%.4f")
+                    is_caj_active = st.checkbox("🟢 Modo Cajero Activo (Aparecer en el mapa)", value=default_activo)
+                with col_caj_b2:
+                    metodos_sel = st.multiselect("💳 Métodos de pago que aceptas", all_methods, default=default_methods)
+                    contacto_pago = st.text_input("📱 Detalles de Cuenta / Número de Nequi / Bancolombia (Privado):", value=default_contacto, placeholder="Ej. Nequi: 3111234567 | Ahorros Bancolombia: 839-29381...", type="password")
+                    
+                    st.write("<b>📍 Simular Ubicación GPS de mi Cajería:</b>", unsafe_allow_html=True)
+                    col_gps_lat, col_gps_lng = st.columns(2)
+                    with col_gps_lat:
+                        lat_gps = st.number_input("Latitud GPS", value=default_lat, format="%.5f", key="caj_lat_gps")
+                    with col_gps_lng:
+                        lng_gps = st.number_input("Longitud GPS", value=default_lng, format="%.5f", key="caj_lng_gps")
+                        
+                submit_caj = st.form_submit_button("💾 Guardar Configuración de Cajero")
+                if submit_caj:
+                    if not metodos_sel:
+                        st.error("⚠️ Debes seleccionar al menos un método de pago para activar tu cajería.")
+                    elif not contacto_pago.strip():
+                        st.error("⚠️ Debes proporcionar tus datos de cuenta o contacto para recibir el dinero.")
+                    else:
+                        metodos_str = ",".join(metodos_sel)
+                        register_or_update_cajero(st.session_state.wallet_code, saldo_cop, saldo_sd, metodos_str, contacto_pago, lat_gps, lng_gps, is_caj_active)
+                        st.success("✅ ¡Tu perfil de cajero ha sido configurado y guardado con éxito!")
+                        st.rerun()
+                        
+            # Card show stats if registered
+            if caj_det:
+                st.markdown(f"""
+                <div class="card" style="border-left: 5px solid #10b981; margin-top: 15px;">
+                    <h4 style="color:#10b981; margin-top:0;">📊 Mis Estadísticas como Cajero</h4>
+                    <p>• <b>Calificación:</b> ⭐ {caj_det['rating']} de 5.0</p>
+                    <p>• <b>Total de Operaciones:</b> {caj_det['totalTransacciones']} transacciones exitosas</p>
+                    <p>• <b>Estado en el mapa:</b> {'🟢 ACTIVO Y VISIBLE' if caj_det['activo'] else '🔴 INACTIVO Y OCULTO'}</p>
+                </div>
+                """, unsafe_allow_html=True)
+
+        # ----------------- PESTAÑA 2: CAJEROS CERCA DE TI -----------------
+        with tab_buscar_cajero:
+            st.subheader("🔍 Cajeros P2P Activos en tu Zona")
+            st.write("Consulta el mapa interactivo y solicita cambios de SD a pesos colombianos (COP) o de COP a SD en tu radio de 5km de forma inmediata.")
+            
+            # Simulated GPS for current user searching
+            st.markdown("<b>📍 Tu ubicación GPS de búsqueda (Simulado):</b>", unsafe_allow_html=True)
+            col_search_gps_lat, col_search_gps_lng = st.columns(2)
+            with col_search_gps_lat:
+                user_search_lat = st.number_input("Mi Latitud GPS", value=4.6097, format="%.5f", key="user_search_lat_val")
+            with col_search_gps_lng:
+                user_search_lng = st.number_input("Mi Longitud GPS", value=-74.0817, format="%.5f", key="user_search_lng_val")
+                
+            active_cajeros = get_active_cajeros(user_search_lat, user_search_lng)
+            
+            # Map representation
+            if len(active_cajeros) == 0:
+                st.info("ℹ️ No se han detectado cajeros activos cerca de tu ubicación GPS (radio de 5km).")
+            else:
+                # Compile dataframe for st.map
+                map_data_list = []
+                for c in active_cajeros:
+                    map_data_list.append({
+                        "fullname": c["fullname"],
+                        "latitude": c["lat"],
+                        "longitude": c["lng"],
+                        "saldoCOP": c["saldoCOP"],
+                        "saldoSD": c["saldoSD"]
+                    })
+                df_map_caj = pd.DataFrame(map_data_list)
+                st.map(df_map_caj)
+                
+                # List tellers below map
+                st.markdown("### 📋 Cajeros Humanos en tu Radio de Búsqueda (Ordenados por cercanía)")
+                
+                for c in active_cajeros:
+                    # Ignore self
+                    if c["userId"] == st.session_state.wallet_code:
+                        continue
+                        
+                    with st.expander(f"👤 {c['fullname']} (@{c['username']}) — A {c['distance']} km de distancia"):
+                        col_c_left, col_c_right = st.columns([1, 1])
+                        with col_c_left:
+                            st.markdown(f"""
+                            <div class="card" style="border-left: 3px solid #ffd700;">
+                                <p><b>Calificación:</b> ⭐ {c['rating']} ({c['totalTransacciones']} transacciones)</p>
+                                <p><b>Saldo COP para Cambiar:</b> <span style="color:#10b981; font-weight:bold;">${c['saldoCOP']:,.0f} COP</span></p>
+                                <p><b>Saldo SD para Cambiar:</b> <span style="color:#ffd700; font-weight:bold;">{format_num(c['saldoSD'])} SD</span></p>
+                                <p><b>Métodos de pago que acepta:</b> {c['metodosPago']}</p>
+                            </div>
+                            """, unsafe_allow_html=True)
+                        with col_c_right:
+                            st.write("<b>📨 Enviar Solicitud de Cambio P2P:</b>", unsafe_allow_html=True)
+                            with st.form(f"p2p_request_form_{c['userId']}"):
+                                op_type = st.selectbox("Tipo de Operación", ["Comprar SD con COP", "Vender SD por COP"], key=f"p2p_op_{c['userId']}")
+                                amount_sd_p2p = st.number_input("Cantidad de SD a cambiar:", min_value=0.1, value=10.0, format="%.4f", key=f"p2p_amt_{c['userId']}")
+                                p2p_met_pago = st.selectbox("Método de pago a utilizar:", c['metodosPago'].split(","), key=f"p2p_met_{c['userId']}")
+                                
+                                submit_p2p_req = st.form_submit_button("📨 Solicitar Cambio / Iniciar Sala")
+                                if submit_p2p_req:
+                                    # Verify basic balance requirements
+                                    if op_type == "VENDER_SD" and balance < amount_sd_p2p:
+                                        st.error(f"⚠️ Saldo SD insuficiente para vender. Tienes {format_num(balance)} SD.")
+                                    elif op_type == "COMPRAR_SD" and amount_sd_p2p > c['saldoSD']:
+                                        st.error(f"⚠️ El cajero no dispone de suficiente balance en SD ({format_num(c['saldoSD'])} SD disponibles).")
+                                    else:
+                                        op_code = "COMPRAR_SD" if op_type == "Comprar SD con COP" else "VENDER_SD"
+                                        create_p2p_transaction(st.session_state.wallet_code, c['userId'], op_code, amount_sd_p2p, p2p_met_pago)
+                                        st.success("🎉 ¡Solicitud enviada con éxito! Se ha abierto la sala de chat. Ve a la pestaña 'Sala de Transacción' para coordinar el pago.")
+                                        st.rerun()
+
+        # ----------------- PESTAÑA 3: SALA DE TRANSACCIÓN -----------------
+        with tab_sala_tx:
+            st.subheader("💬 Sala de Transacción P2P y Chat en Tiempo Real")
+            st.write("Coordina el pago, sube los soportes y confirma la recepción para liberar los fondos de forma descentralizada.")
+            
+            # Fetch active and historic P2P transactions for this user
+            conn_rooms = get_db_connection()
+            p2p_txs = pd.read_sql_query("""
+                SELECT t.id, t.compradorId, t.cajeroId, t.tipo, t.monto, t.estado, t.fechaInicio,
+                       u1.fullname as comprador_name, u2.fullname as cajero_name
+                FROM transacciones_p2p t
+                JOIN users u1 ON t.compradorId = u1.wallet_code
+                JOIN users u2 ON t.cajeroId = u2.wallet_code
+                WHERE t.compradorId = ? OR t.cajeroId = ?
+                ORDER BY t.fechaInicio DESC
+            """, conn_rooms, params=(st.session_state.wallet_code, st.session_state.wallet_code))
+            conn_rooms.close()
+            
+            if len(p2p_txs) == 0:
+                st.info("ℹ️ No tienes ninguna transacción P2P registrada todavía. Busca un cajero para iniciar una solicitud.")
+            else:
+                def format_room_label(r):
+                    role_lbl = "Cajero" if r['cajeroId'] == st.session_state.wallet_code else "Comprador"
+                    status_lbl_t = "🟢 EN CURSO" if r['estado'] == 'EN_PROCESO' else ("🟡 PENDIENTE" if r['estado'] == 'PENDING' else ("🚨 DISPUTA" if r['estado'] == 'EN_DISPUTA' else "🏁 FINALIZADO"))
+                    return f"Sala #{r['id']} | Rol: {role_lbl} | {r['tipo'].replace('_', ' ')} | {format_num(r['monto'])} SD | {status_lbl_t}"
+                
+                room_opts = {format_room_label(r): r for idx, r in p2p_txs.iterrows()}
+                selected_room_label = st.selectbox("🤝 Selecciona una Sala de Transacción activa o pasada:", list(room_opts.keys()))
+                sel_p2p_tx = room_opts[selected_room_label]
+                
+                tx = get_p2p_transaction_details(sel_p2p_tx['id'])
+                
+                is_teller_role = tx["cajeroId"] == st.session_state.wallet_code
+                other_name = tx["comprador_name"] if is_teller_role else tx["cajero_name"]
+                other_code = tx["compradorId"] if is_teller_role else tx["cajeroId"]
+                
+                st.markdown(f"""
+                <div class="card" style="border-left: 5px solid #ffd700;">
+                    <h4 style="color:#ffd700; margin-top:0;">🤝 Sala de Transacción #{tx['id']}</h4>
+                    <p>• <b>Comprador:</b> {tx['comprador_name']} ({tx['compradorId']})</p>
+                    <p>• <b>Cajero:</b> {tx['cajero_name']} ({tx['cajeroId']})</p>
+                    <p>• <b>Operación:</b> {'📥 Compra SD' if tx['tipo'] == 'COMPRAR_SD' else '📤 Venta SD'}</p>
+                    <p>• <b>Cantidad:</b> {format_num(tx['monto'])} SD (Comisión: {format_num(tx['comision'])} SD incluida)</p>
+                    <p>• <b>Estado:</b> <span style="font-weight:bold; color:#ffd700;">{tx['estado']}</span></p>
+                </div>
+                """, unsafe_allow_html=True)
+                
+                col_room_chat, col_room_pay = st.columns([1, 1])
+                
+                # Chat Section
+                with col_room_chat:
+                    st.write("<b>💬 Chat Interno P2P (Firebase simulado):</b>", unsafe_allow_html=True)
+                    df_chat_m = get_p2p_chat_messages(tx['id'])
+                    
+                    st.markdown("""
+                    <div style="background-color:#050507; border:1px solid #334155; border-radius:10px; padding:15px; height:320px; overflow-y:scroll; display:flex; flex-direction:column; margin-bottom:15px;">
+                    """)
+                    
+                    if len(df_chat_m) == 0:
+                        st.info("No hay mensajes en esta sala. Escribe un mensaje abajo para coordinar el pago.")
+                    else:
+                        for idx_msg, r_msg in df_chat_m.iterrows():
+                            is_me = r_msg['sender_code'] == st.session_state.wallet_code
+                            align_style = "margin-left: auto; background-color: #10b98125; border-right: 3px solid #10b981;" if is_me else "margin-right: auto; background-color: #1f1f23; border-left: 3px solid #ffd700;"
+                            sender_display = "Tú" if is_me else r_msg['fullname']
+                            st.markdown(f"""
+                            <div style="padding: 8px 12px; border-radius: 8px; margin-bottom: 8px; max-width: 80%; {align_style}">
+                                <span style="font-size:0.7rem; color:#888899; display:block; margin-bottom:3px;"><b>{sender_display}</b> — {r_msg['timestamp']}</span>
+                                <p style="margin:0; font-size:0.85rem; color:#ffffff; line-height:1.2rem;">{r_msg['message']}</p>
+                            </div>
+                            """, unsafe_allow_html=True)
+                    st.markdown("</div>", unsafe_allow_html=True)
+                    
+                    if tx['estado'] not in ["FINALIZADO", "CANCELLED", "RECHAZADA"]:
+                        with st.form(f"p2p_send_msg_form_{tx['id']}"):
+                            msg_to_send = st.text_input("Escribe tu mensaje:", placeholder="Ej. ¡Hola! Ya te hice la transferencia a Nequi.")
+                            submit_p2p_msg = st.form_submit_button("💬 Enviar")
+                            if submit_p2p_msg and msg_to_send.strip():
+                                send_p2p_chat_message(tx['id'], st.session_state.wallet_code, msg_to_send.strip())
+                                st.rerun()
+                                
+                # Payment flow/buttons
+                with col_room_pay:
+                    st.write("<b>💳 Flujo de Pago y Liberación:</b>", unsafe_allow_html=True)
+                    
+                    caj_contacts = get_cajero_details(tx['cajeroId'])
+                    
+                    if tx['estado'] == 'PENDING':
+                        if is_teller_role:
+                            st.info("🙋‍♂️ **Tienes una nueva solicitud de cambio.** Revisa el monto y confirma para iniciar el proceso.")
+                            col_pend1, col_pend2 = st.columns(2)
+                            with col_pend1:
+                                if st.button("✅ Aceptar y Abrir Chat", key=f"app_p2p_tx_{tx['id']}"):
+                                    update_p2p_transaction_status(tx['id'], "EN_PROCESO")
+                                    send_p2p_chat_message(tx['id'], "99999", "🤝 El cajero aceptó la transacción. Se inició la sala de chat.")
+                                    st.success("¡Transacción aceptada!")
+                                    st.rerun()
+                            with col_pend2:
+                                if st.button("❌ Rechazar Solicitud", key=f"rej_p2p_tx_{tx['id']}"):
+                                    update_p2p_transaction_status(tx['id'], "RECHAZADA")
+                                    st.warning("Transacción rechazada.")
+                                    st.rerun()
+                        else:
+                            st.info("⏳ **Esperando al Cajero:** El cajero debe aceptar tu solicitud para iniciar el chat y compartir los datos de su cuenta. Se te notificará de inmediato.")
+                            
+                    elif tx['estado'] == 'EN_PROCESO':
+                        st.write("<b>Pasos a seguir:</b>", unsafe_allow_html=True)
+                        is_buyer_role = (tx['tipo'] == 'COMPRAR_SD' and not is_teller_role) or (tx['tipo'] == 'VENDER_SD' and is_teller_role)
+                        
+                        if is_buyer_role: 
+                            st.markdown(f"""
+                            <div class="card" style="border-left: 3px solid #3b82f6;">
+                                <p>📱 <b>Información de Cuenta del Cajero:</b></p>
+                                <p><b>Detalle de pago:</b> <code>{caj_contacts['contactoPago'] if caj_contacts else 'Consultar en el chat'}</code></p>
+                                <p><b>Monto aproximado en COP a transferir:</b> ${(tx['monto'] * token_price_cop):,.0f} COP</p>
+                            </div>
+                            """, unsafe_allow_html=True)
+                            
+                            with st.form(f"p2p_payment_upload_form_{tx['id']}"):
+                                uploaded_p2p_file = st.file_uploader("📷 Sube la captura de pantalla de tu transferencia realizada:", type=["jpg", "jpeg", "png"])
+                                submit_p2p_pay = st.form_submit_button("📤 Declarar: Ya envié el pago")
+                                if submit_p2p_pay:
+                                    if not uploaded_p2p_file:
+                                        st.error("⚠️ Debes adjuntar la imagen del comprobante para declarar el envío del dinero.")
+                                    else:
+                                        img_bytes_p2p = uploaded_p2p_file.read()
+                                        update_p2p_transaction_status(tx['id'], "EN_PROCESO", img_bytes_p2p)
+                                        send_p2p_chat_message(tx['id'], st.session_state.wallet_code, "📢 ¡Declarado! Ya realicé el envío del dinero. Comprobante subido con éxito.")
+                                        st.success("¡Pago reportado! Espera a que la contraparte verifique y libere los tokens.")
+                                        st.rerun()
+                        else: 
+                            st.info("⏳ A la espera de que el comprador realice la transferencia y suba su soporte de pago. Una vez que lo haga, podrás visualizar el comprobante aquí para liberar los tokens.")
+                            
+                        if tx['comprobanteUrl']:
+                            st.markdown("<b>📸 Comprobante de Pago Subido:</b>", unsafe_allow_html=True)
+                            try:
+                                st.image(tx['comprobanteUrl'], caption="Soporte enviado por el comprador", use_container_width=True)
+                            except Exception:
+                                st.write("Soporte de pago subido pero no compatible.")
+                                
+                            is_seller_role = (tx['tipo'] == 'COMPRAR_SD' and is_teller_role) or (tx['tipo'] == 'VENDER_SD' and not is_teller_role)
+                            if is_seller_role:
+                                st.success("🟢 El comprador ha declarado el pago. Por favor verifica tu cuenta bancaria y presiona el botón de abajo para liberar de forma irrevocable los tokens SD.")
+                                if st.button("✅ Ya recibí el pago (Liberar SD)", key=f"release_sd_p2p_{tx['id']}", use_container_width=True):
+                                    success_tr, msg_tr = finalize_p2p_transaction_transfer(tx['id'])
+                                    if success_tr:
+                                        st.success(msg_tr)
+                                        st.balloons()
+                                        st.rerun()
+                                    else:
+                                        st.error(msg_tr)
+                                        
+                        st.markdown("---")
+                        st.write("<b>¿Hay problemas con el pago?</b>", unsafe_allow_html=True)
+                        if st.button("⚠️ Abrir Disputa (Soporte Admin)", key=f"dispute_p2p_btn_{tx['id']}", use_container_width=True):
+                            update_p2p_transaction_status(tx['id'], "EN_DISPUTA")
+                            send_p2p_chat_message(tx['id'], "99999", "⚠️ Se ha abierto una disputa sobre esta transacción. El administrador evaluará el caso.")
+                            st.warning("Disputa abierta. El administrador intervendrá pronto.")
+                            st.rerun()
+                            
+                    elif tx['estado'] == 'EN_DISPUTA':
+                        st.markdown("""
+                        <div class="card" style="border-left: 5px solid #ef4444; background-color:#1c0707 !important;">
+                            <h4 style="color:#ef4444; margin-top:0;">⚠️ EN DISPUTA</h4>
+                            <p style="font-size:0.88rem; line-height:1.35rem; color:#ffffff;">
+                                Esta transacción ha sido bloqueada debido a una disputa. Un administrador revisará el historial del chat y los comprobantes de pago subidos para dictaminar la liberación de los fondos de forma manual.
+                            </p>
+                        </div>
+                        """, unsafe_allow_html=True)
+                        if tx['comprobanteUrl']:
+                            st.markdown("<b>Soporte cargado para revisión:</b>", unsafe_allow_html=True)
+                            try:
+                                st.image(tx['comprobanteUrl'], use_container_width=True)
+                            except Exception:
+                                pass
+                                
+                    elif tx['estado'] == 'FINALIZADO':
+                        st.success("🎉 **¡Transacción Completada!** Los fondos en tokens SD han sido transferidos exitosamente.")
+                        
+                        st.markdown("### ⭐ Califica la Transacción")
+                        rating_key = f"p2p_rated_{tx['id']}"
+                        if rating_key not in st.session_state:
+                            st.session_state[rating_key] = False
+                            
+                        if not st.session_state[rating_key]:
+                            stars = st.slider("Califica tu experiencia con la contraparte (1 a 5 estrellas):", 1, 5, 5, key=f"stars_sl_{tx['id']}")
+                            if st.button("⭐ Enviar Calificación", key=f"rate_p2p_btn_{tx['id']}", use_container_width=True):
+                                submit_p2p_rating(tx['id'], st.session_state.wallet_code, other_code, stars)
+                                st.session_state[rating_key] = True
+                                st.success("¡Gracias por tu calificación! Ayuda a mantener segura la comunidad Alianza.")
+                                st.rerun()
+                        else:
+                            st.info("✅ Ya has enviado tu calificación para esta transacción.")
+
     # --- SECCIÓN: MIS REFERIDOS (ÁRBOL GENEALÓGICO) ---
     elif choice == "👥 Mis Referidos":
+
         st.markdown("<h1 class='golden-title'>👥 Mi Red de Referidos</h1>", unsafe_allow_html=True)
         st.write("Gestiona tu red de invitados de Alianza, visualiza tu árbol genealógico completo y monitorea tus ganancias generadas.")
         
@@ -6264,7 +6991,13 @@ else:
         pending_store_count = len(get_pending_store_purchases())
         
         pending_bills_count = get_pending_bills_count()
-        tab_mint, tab_claims, tab_bills_claims, tab_withdraws, tab_store, tab_store_catalog, tab_games_control, tab_staking_admin, tab_referrals, tab_fees, tab_messenger, tab_broadcast, tab_settings_token = st.tabs([
+        conn_disp = get_db_connection()
+        cursor_disp = conn_disp.cursor()
+        cursor_disp.execute("SELECT COUNT(*) FROM transacciones_p2p WHERE estado = 'EN_DISPUTA'")
+        pending_disputes_count = cursor_disp.fetchone()[0] or 0
+        conn_disp.close()
+
+        tab_mint, tab_claims, tab_bills_claims, tab_withdraws, tab_store, tab_store_catalog, tab_games_control, tab_staking_admin, tab_p2p_admin, tab_referrals, tab_fees, tab_messenger, tab_broadcast, tab_settings_token = st.tabs([
             "💸 Emisión de Monedas", 
             f"📥 Comprobantes por Confirmar ({pending_claims_count})", 
             f"🪙 Solicitudes BILLS -> SD ({pending_bills_count})",
@@ -6273,6 +7006,7 @@ else:
             "🛍️ Catálogo de Tienda",
             "🎮 Control de Juegos",
             "⛏️ Control de Staking/Minería",
+            f"👥 Gestión P2P / Cajeros ({pending_disputes_count})",
             f"👥 Comisiones de Referidos ({pending_rewards_count})",
             "📊 Comisiones de Plataforma",
             "🚚 Control de Mensajería",
@@ -6627,6 +7361,186 @@ else:
                                         if reject_store_purchase(row['id']):
                                             st.warning("Compra rechazada y tokens reembolsados.")
                                             st.rerun()
+
+        with tab_p2p_admin:
+            st.subheader("👥 Gestión P2P / Cajeros Humanos")
+            st.write("Administra los cajeros registrados, visualiza transacciones P2P, resuelve disputas y monitorea comisiones.")
+            
+            # 1. Dashboard de comisiones
+            day_fees, week_fees, month_fees = get_p2p_transactions_summary()
+            
+            # conversion to COP
+            token_price_usd_calc = get_token_settings()['price_usd']
+            usd_cop_rate_calc = fetch_usd_cop_rate()
+            token_price_cop_calc = token_price_usd_calc * usd_cop_rate_calc
+            
+            col_fee_d, col_fee_w, col_fee_m = st.columns(3)
+            with col_fee_d:
+                st.markdown(f"""
+                <div class="card" style="border-left: 5px solid #10b981;">
+                    <div class="metric-title">Comisiones P2P Hoy</div>
+                    <div class="metric-value" style="color: #10b981;">{format_num(day_fees)} SD</div>
+                    <div class="metric-sub">Equivale a: ${format_num(day_fees * token_price_cop_calc)} COP</div>
+                </div>
+                """, unsafe_allow_html=True)
+            with col_fee_w:
+                st.markdown(f"""
+                <div class="card" style="border-left: 5px solid #ffd700;">
+                    <div class="metric-title">Comisiones P2P Semana</div>
+                    <div class="metric-value" style="color: #ffd700;">{format_num(week_fees)} SD</div>
+                    <div class="metric-sub">Equivale a: ${format_num(week_fees * token_price_cop_calc)} COP</div>
+                </div>
+                """, unsafe_allow_html=True)
+            with col_fee_m:
+                st.markdown(f"""
+                <div class="card" style="border-left: 5px solid #3b82f6;">
+                    <div class="metric-title">Comisiones P2P Mes</div>
+                    <div class="metric-value" style="color: #3b82f6;">{format_num(month_fees)} SD</div>
+                    <div class="metric-sub">Equivale a: ${format_num(month_fees * token_price_cop_calc)} COP</div>
+                </div>
+                """, unsafe_allow_html=True)
+                
+            # 2. Mapa con todos los cajeros activos
+            st.markdown("### 📍 Mapa de Cajeros Activos")
+            conn_map = get_db_connection()
+            active_caj_df = pd.read_sql_query("""
+                SELECT u.fullname, c.lat as latitude, c.lng as longitude, c.saldoCOP, c.saldoSD
+                FROM cajeros c
+                JOIN users u ON c.userId = u.wallet_code
+                WHERE c.activo = 1
+            """, conn_map)
+            conn_map.close()
+            
+            if len(active_caj_df) > 0:
+                st.map(active_caj_df)
+            else:
+                st.info("ℹ️ No hay ningún cajero activo en el mapa en este momento.")
+                
+            # 3. Módulo de resolución de disputas
+            st.markdown("---")
+            st.subheader("⚠️ Módulo de Resolución de Disputas P2P")
+            conn_disp = get_db_connection()
+            disputes_df = pd.read_sql_query("""
+                SELECT t.id, t.compradorId, t.cajeroId, t.tipo, t.monto, t.comision, t.estado,
+                       u1.fullname as comprador_name, u2.fullname as cajero_name
+                FROM transacciones_p2p t
+                JOIN users u1 ON t.compradorId = u1.wallet_code
+                JOIN users u2 ON t.cajeroId = u2.wallet_code
+                WHERE t.estado = 'EN_DISPUTA'
+            """, conn_disp)
+            conn_disp.close()
+            
+            if len(disputes_df) == 0:
+                st.info("🎉 ¡Al día! No hay transacciones en disputa actualmente.")
+            else:
+                dispute_opts = {f"🚨 Transacción #{r['id']} - Comprador: {r['comprador_name']} | Cajero: {r['cajero_name']} ({format_num(r['monto'])} SD)": r for idx, r in disputes_df.iterrows()}
+                selected_dispute_label = st.selectbox("Selecciona una disputa para revisar y resolver:", list(dispute_opts.keys()))
+                disp_tx = dispute_opts[selected_dispute_label]
+                
+                col_d_chat, col_d_actions = st.columns([1, 1])
+                with col_d_chat:
+                    st.write("<b>💬 Chat de la Transacción:</b>", unsafe_allow_html=True)
+                    df_disp_msg = get_p2p_chat_messages(disp_tx['id'])
+                    if len(df_disp_msg) == 0:
+                        st.info("No se enviaron mensajes en el chat de esta transacción.")
+                    else:
+                        for idx_m, row_m in df_disp_msg.iterrows():
+                            align_style = "margin-right: auto; background-color: #1f1f23; border-left: 3px solid #ffd700;"
+                            st.markdown(f"""
+                            <div style="padding: 10px; border-radius: 8px; margin-bottom: 8px; max-width: 85%; {align_style}">
+                                <span style="font-size:0.75rem; color:#888899; display:block; margin-bottom:3px;">{row_m['fullname']} ({row_m['sender_code']}) - {row_m['timestamp']}</span>
+                                <p style="margin:0; font-size:0.9rem; color:#ffffff;">{row_m['message']}</p>
+                            </div>
+                            """, unsafe_allow_html=True)
+                with col_d_actions:
+                    st.write("<b>🔍 Soporte y Acción Administrativa:</b>", unsafe_allow_html=True)
+                    tx_det = get_p2p_transaction_details(disp_tx['id'])
+                    
+                    if tx_det['comprobanteUrl']:
+                        try:
+                            st.image(tx_det['comprobanteUrl'], caption="Captura de pantalla de soporte/comprobante enviada", use_container_width=True)
+                        except Exception:
+                            st.error("No se pudo cargar la imagen del comprobante de soporte.")
+                    else:
+                        st.info("No se ha subido ninguna captura de pantalla todavía.")
+                        
+                    st.write("<b>Dictaminar Resolución:</b>", unsafe_allow_html=True)
+                    st.warning("⚠️ **ATENCIÓN:** Como administrador, tu decisión es final e irreversible. Al liberar fondos, los tokens SD se transferirán inmediatamente al comprador. Al devolverlos, se cancela la transacción y se devuelven al vendedor.")
+                    
+                    col_b_lib, col_b_dev = st.columns(2)
+                    with col_b_lib:
+                        if st.button("🔓 Liberar Fondos al Comprador", key=f"admin_lib_p2p_{disp_tx['id']}"):
+                            success_l, msg_l = finalize_p2p_transaction_transfer(disp_tx['id'])
+                            if success_l:
+                                st.success(msg_l)
+                                st.balloons()
+                                st.rerun()
+                            else:
+                                st.error(msg_l)
+                    with col_b_dev:
+                        if st.button("🔒 Devolver Fondos al Vendedor", key=f"admin_dev_p2p_{disp_tx['id']}"):
+                            # Cancel/Annul the transaction
+                            update_p2p_transaction_status(disp_tx['id'], "CANCELLED")
+                            add_notification(disp_tx['compradorId'], f"🔴 <b>Disputa P2P Cerrada:</b> El administrador ha resuelto devolver los fondos al vendedor para la transacción #{disp_tx['id']}.")
+                            add_notification(disp_tx['cajeroId'], f"🔴 <b>Disputa P2P Cerrada:</b> El administrador ha cancelado la transacción #{disp_tx['id']}. Los fondos están desbloqueados.")
+                            st.success("Transacción cancelada y fondos liberados de vuelta al vendedor.")
+                            st.rerun()
+                            
+            # 4. Bloquear o suspender cajeros
+            st.markdown("---")
+            st.subheader("🚫 Gestión y Bloqueo de Cajeros Humanos")
+            conn_caj_list = get_db_connection()
+            all_cajeros_df = pd.read_sql_query("""
+                SELECT c.id, c.userId, u.fullname, u.username, c.saldoCOP, c.saldoSD, c.activo, c.rating, c.totalTransacciones
+                FROM cajeros c
+                JOIN users u ON c.userId = u.wallet_code
+            """, conn_caj_list)
+            conn_caj_list.close()
+            
+            if len(all_cajeros_df) == 0:
+                st.info("No hay cajeros registrados en el sistema.")
+            else:
+                caj_opts = {f"👤 {r['fullname']} ({r['userId']}) - {'🟢 Activo' if r['activo'] == 1 else '🔴 Inactivo'}": r for idx, r in all_cajeros_df.iterrows()}
+                selected_caj_admin = st.selectbox("Selecciona un cajero para cambiar su estado:", list(caj_opts.keys()))
+                caj_data = caj_opts[selected_caj_admin]
+                
+                col_caj_st1, col_caj_st2 = st.columns(2)
+                with col_caj_st1:
+                    new_state_label = "Inactivar / Suspender" if caj_data['activo'] == 1 else "Activar / Rehabilitar"
+                    if st.button(f"🚫 {new_state_label} Cajero", key=f"btn_toggle_caj_{caj_data['id']}"):
+                        conn_up_caj = get_db_connection()
+                        cursor_up_caj = conn_up_caj.cursor()
+                        new_state_val = 0 if caj_data['activo'] == 1 else 1
+                        cursor_up_caj.execute("UPDATE cajeros SET activo = ? WHERE id = ?", (new_state_val, caj_data['id']))
+                        conn_up_caj.commit()
+                        conn_up_caj.close()
+                        st.success(f"¡El cajero {caj_data['fullname']} ha sido {'desactivado/suspendido' if new_state_val == 0 else 'rehabilitado/activado'} con éxito!")
+                        st.rerun()
+                with col_caj_st2:
+                    st.write(f"<b>Estadísticas de Cajero:</b>", unsafe_allow_html=True)
+                    st.write(f"• **Calificación:** ⭐ {caj_data['rating']} de 5.0")
+                    st.write(f"• **Total de operaciones:** {caj_data['totalTransacciones']} transacciones")
+                    st.write(f"• **Saldos:** ${caj_data['saldoCOP']:,.0f} COP | {format_num(caj_data['saldoSD'])} SD")
+
+            # 5. Historial completo de transacciones P2P
+            st.markdown("---")
+            st.subheader("📋 Historial General de Transacciones P2P")
+            df_p2p_all = get_all_p2p_transactions()
+            if len(df_p2p_all) == 0:
+                st.info("No se han registrado transacciones P2P en el sistema.")
+            else:
+                df_p2p_all_disp = df_p2p_all.copy()
+                df_p2p_all_disp['Monto'] = df_p2p_all_disp['monto'].apply(lambda x: f"{format_num(x)} SD")
+                df_p2p_all_disp['Comisión (2%)'] = df_p2p_all_disp['comision'].apply(lambda x: f"{format_num(x)} SD")
+                df_p2p_all_disp['Estado'] = df_p2p_all_disp['estado'].apply(
+                    lambda s: "🟡 Pendiente" if s == 'PENDING' else ("🟢 En Proceso" if s == 'EN_PROCESO' else ("🔵 Finalizado" if s == 'FINALIZADO' else ("🔴 En Disputa" if s == 'EN_DISPUTA' else "❌ Cancelado")))
+                )
+                df_p2p_all_disp['Tipo'] = df_p2p_all_disp['tipo'].apply(
+                    lambda t: "📥 Compra SD" if t == 'COMPRAR_SD' else "📤 Venta SD"
+                )
+                df_p2p_all_disp = df_p2p_all_disp[['fechaInicio', 'id', 'comprador_name', 'cajero_name', 'Tipo', 'Monto', 'Comisión (2%)', 'Estado']]
+                df_p2p_all_disp.columns = ['Fecha', 'ID Transacción', 'Comprador/Cliente', 'Cajero Humano', 'Tipo de Cambio', 'Monto Transado', 'Comisión', 'Estado']
+                st.dataframe(df_p2p_all_disp, use_container_width=True)
 
         with tab_referrals:
             st.subheader("👥 Gestión de Comisiones por Referidos")
