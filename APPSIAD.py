@@ -30,7 +30,7 @@ def clean_html(html_str):
 
 # Configuración de página de Streamlit
 st.set_page_config(
-    page_title="Alianza CryptoWallet v70",
+    page_title="Alianza CryptoWallet v71",
     page_icon="💼",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -3443,7 +3443,7 @@ st.markdown(f"""
 
 if not st.session_state.logged_in:
     st.sidebar.title("🔐 Alianza CryptoWallet")
-    st.sidebar.markdown("<div style='background-color: #1e293b; padding: 6px 12px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 15px; text-align: center;'><span style='color: #ffd700; font-size: 0.85rem; font-weight: bold;'>🚀 Versión de la App: v70</span></div>", unsafe_allow_html=True)
+    st.sidebar.markdown("<div style='background-color: #1e293b; padding: 6px 12px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 15px; text-align: center;'><span style='color: #ffd700; font-size: 0.85rem; font-weight: bold;'>🚀 Versión de la App: v71</span></div>", unsafe_allow_html=True)
     menu = st.sidebar.selectbox("Seleccione una opción", ["Iniciar Sesión", "Registrarse"])
     
     if menu == "Iniciar Sesión":
@@ -3511,7 +3511,7 @@ if not st.session_state.logged_in:
 else:
     # Sidebar de usuario conectado con toques dorados
     st.sidebar.markdown(f"<h2 class='golden-title'>👋 {st.session_state.fullname}</h2>", unsafe_allow_html=True)
-    st.sidebar.markdown("<div style='background-color: #1e293b; padding: 6px 12px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 15px; text-align: center;'><span style='color: #ffd700; font-size: 0.85rem; font-weight: bold;'>🚀 Versión de la App: v70</span></div>", unsafe_allow_html=True)
+    st.sidebar.markdown("<div style='background-color: #1e293b; padding: 6px 12px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 15px; text-align: center;'><span style='color: #ffd700; font-size: 0.85rem; font-weight: bold;'>🚀 Versión de la App: v71</span></div>", unsafe_allow_html=True)
     st.sidebar.markdown(f"**Billetera ID (Código):** `{st.session_state.wallet_code}`")
     
     # Obtener el número de notificaciones pendientes
@@ -4394,7 +4394,7 @@ else:
             st.write("Envía BILLS a esta dirección:")
             
             # Dirección de wallet de BILLS
-            bills_wallet_address = "0x71C7656EC7ab88b098defB751B7401B5f6d1476B"
+            bills_wallet_address, _ = get_game_setting('bills_wallet', default_val='0x71C7656EC7ab88b098defB751B7401B5f6d1476B')
             
             # Mostrar la dirección con botón de copiar usando un componente HTML/JS
             copy_html = f"""
@@ -6422,6 +6422,22 @@ else:
                                 
         with tab_bills_claims:
             st.subheader("🪙 SOLICITUDES BILLS -> SD")
+            
+            # --- SECCIÓN EDITAR WALLET DE BILLS ---
+            current_bills_wallet, _ = get_game_setting('bills_wallet', default_val='0x71C7656EC7ab88b098defB751B7401B5f6d1476B')
+            st.write("<b>⚙️ Configurar Dirección Oficial de BILLS de Recepción:</b>", unsafe_allow_html=True)
+            with st.form("admin_edit_bills_wallet_form_v71"):
+                new_bills_wallet = st.text_input("Dirección de Billetera BILLS Oficial (donde los usuarios enviarán sus BILLS):", value=current_bills_wallet, placeholder="Ej. 0x...")
+                submit_bills_wallet = st.form_submit_button("💾 Guardar Dirección de BILLS")
+                if submit_bills_wallet:
+                    if not new_bills_wallet.strip().startswith("0x") or len(new_bills_wallet.strip()) != 42:
+                        st.error("⚠️ Por favor ingresa una dirección de billetera de red (0x...) válida de 42 caracteres.")
+                    else:
+                        update_game_setting('bills_wallet', new_bills_wallet.strip(), 0.0)
+                        st.success("✅ ¡La dirección oficial de BILLS ha sido actualizada exitosamente!")
+                        st.rerun()
+            st.markdown("---")
+            
             st.write("Revisa y valida las solicitudes de recarga enviadas por los usuarios que pagaron usando BILLS.")
             
             bills_claims_df = get_pending_bills_purchases()
