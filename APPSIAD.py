@@ -5463,7 +5463,7 @@ st.markdown(f"""
 
 if not st.session_state.logged_in:
     st.sidebar.title("🔐 Alianza CryptoWallet")
-    st.sidebar.markdown("<div style='background-color: #1e293b; padding: 6px 12px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 15px; text-align: center;'><span style='color: #ffd700; font-size: 0.85rem; font-weight: bold;'>🚀 Versión de la App: v78</span></div>", unsafe_allow_html=True)
+    st.sidebar.markdown("<div style='background-color: #1e293b; padding: 6px 12px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 15px; text-align: center;'><span style='color: #ffd700; font-size: 0.85rem; font-weight: bold;'>🚀 Versión de la App: v79</span></div>", unsafe_allow_html=True)
     menu = st.sidebar.selectbox("Seleccione una opción", ["Iniciar Sesión", "Registrarse"])
     
     if menu == "Iniciar Sesión":
@@ -5531,7 +5531,7 @@ if not st.session_state.logged_in:
 else:
     # Sidebar de usuario conectado con toques dorados
     st.sidebar.markdown(f"<h2 class='golden-title'>👋 {st.session_state.fullname}</h2>", unsafe_allow_html=True)
-    st.sidebar.markdown("<div style='background-color: #1e293b; padding: 6px 12px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 15px; text-align: center;'><span style='color: #ffd700; font-size: 0.85rem; font-weight: bold;'>🚀 Versión de la App: v78</span></div>", unsafe_allow_html=True)
+    st.sidebar.markdown("<div style='background-color: #1e293b; padding: 6px 12px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 15px; text-align: center;'><span style='color: #ffd700; font-size: 0.85rem; font-weight: bold;'>🚀 Versión de la App: v79</span></div>", unsafe_allow_html=True)
     st.sidebar.markdown(f"**Billetera ID (Código):** `{st.session_state.wallet_code}`")
     
     # Obtener el número de notificaciones pendientes
@@ -9663,7 +9663,7 @@ else:
             pending_invoices_count = 0
         conn_inv.close()
 
-        tab_mint, tab_claims, tab_bills_claims, tab_withdraws, tab_store, tab_store_catalog, tab_games_control, tab_staking_admin, tab_p2p_admin, tab_finca_admin, tab_chamba_admin, tab_humanos_admin, tab_facturas_admin, tab_referrals, tab_fees, tab_messenger, tab_broadcast, tab_settings_token = st.tabs([
+        tab_mint, tab_claims, tab_bills_claims, tab_withdraws, tab_store, tab_store_catalog, tab_games_control, tab_staking_admin, tab_p2p_admin, tab_finca_admin, tab_chamba_admin, tab_humanos_admin, tab_facturas_admin, tab_mina_madre, tab_referrals, tab_fees, tab_messenger, tab_broadcast, tab_settings_token = st.tabs([
             "💸 Emisión de Monedas", 
             f"📥 Comprobantes por Confirmar ({pending_claims_count})", 
             f"🪙 Solicitudes BILLS -> SD ({pending_bills_count})",
@@ -9677,6 +9677,7 @@ else:
             f"💼 Gestión Chamba SD ({pending_chamba_proofs_count})",
             "👥 Gestión Humanos Reales",
             f"🧾 Auditoría de Facturas ({pending_invoices_count})",
+            "👑 Mina Madre",
             f"👥 Comisiones de Referidos ({pending_rewards_count})",
             "📊 Comisiones de Plataforma",
             "🚚 Control de Mensajería",
