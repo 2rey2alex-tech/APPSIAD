@@ -30,7 +30,7 @@ def clean_html(html_str):
 
 # Configuración de página de Streamlit
 st.set_page_config(
-    page_title="Alianza CryptoWallet v73",
+    page_title="Alianza CryptoWallet v74",
     page_icon="💼",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -553,6 +553,83 @@ def init_db():
             timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
         )
     """)
+
+    # Tabla: negocios_chamba (para negocios que patrocinan tareas)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS negocios_chamba (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            nombreNegocio TEXT,
+            contacto TEXT,
+            totalInvertidoCOP REAL DEFAULT 0.0
+        )
+    """)
+
+    # Tabla: tareas (para micro-tareas pagadas)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS tareas (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            titulo TEXT,
+            instrucciones TEXT,
+            linkExterno TEXT,
+            tipo TEXT,
+            recompensaSD REAL,
+            costoCOPPagadoPorNegocio REAL,
+            cuposTotales INTEGER,
+            cuposUsados INTEGER DEFAULT 0,
+            estado TEXT DEFAULT 'ACTIVE',
+            fechaCreacion DATETIME DEFAULT CURRENT_TIMESTAMP,
+            fechaVencimiento DATETIME,
+            negocioId INTEGER,
+            FOREIGN KEY(negocioId) REFERENCES negocios_chamba(id)
+        )
+    """)
+
+    # Tabla: tareas_completadas (comprobantes de tareas de los usuarios)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS tareas_completadas (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            tareaId INTEGER,
+            userId TEXT,
+            comprobanteUrl BLOB,
+            estado TEXT DEFAULT 'PENDING',
+            fechaEnvio DATETIME DEFAULT CURRENT_TIMESTAMP,
+            fechaRevision DATETIME,
+            adminQueReviso TEXT,
+            comprobante_hash TEXT,
+            motivo_rechazo TEXT,
+            FOREIGN KEY(tareaId) REFERENCES tareas(id),
+            FOREIGN KEY(userId) REFERENCES users(wallet_code)
+        )
+    """)
+
+    try:
+        cursor.execute("ALTER TABLE users ADD COLUMN chamba_blocked INTEGER DEFAULT 0")
+    except sqlite3.OperationalError:
+        pass
+    try:
+        cursor.execute("ALTER TABLE users ADD COLUMN chamba_rejected_count INTEGER DEFAULT 0")
+    except sqlite3.OperationalError:
+        pass
+
+    # Seed default businesses and tasks
+    try:
+        cursor.execute("SELECT COUNT(*) FROM negocios_chamba")
+        if cursor.fetchone()[0] == 0:
+            cursor.execute("""
+                INSERT INTO negocios_chamba (nombreNegocio, contacto, totalInvertidoCOP) VALUES
+                ('Pizzería Ibagué', '3151234567', 150000.0),
+                ('Hamburguesas El Corral', '3207654321', 300000.0),
+                ('Estética y Salud', '3119876543', 50000.0)
+            """)
+            cursor.execute("""
+                INSERT INTO tareas (titulo, instrucciones, linkExterno, tipo, recompensaSD, costoCOPPagadoPorNegocio, cuposTotales, cuposUsados, estado, fechaVencimiento, negocioId) VALUES
+                ('Sigue a @PizzeriaIbague en Instagram', '1. Da clic en \'Ir a la tarea\' para abrir Instagram.\n2. Sigue la cuenta @PizzeriaIbague.\n3. Toma una captura de pantalla clara.\n4. Súbela en el formulario abajo y presiona Enviar.', 'https://instagram.com', 'Instagram', 300.0, 50000.0, 100, 0, 'ACTIVE', '2026-12-31 23:59:59', 1),
+                ('Sigue a @ElCorral_CO en TikTok', '1. Da clic en \'Ir a la tarea\' para abrir TikTok.\n2. Sigue la cuenta oficial.\n3. Toma captura de pantalla.\n4. Súbela aquí para verificación.', 'https://tiktok.com', 'TikTok', 250.0, 100000.0, 200, 0, 'ACTIVE', '2026-12-31 23:59:59', 2),
+                ('Califica con 5 estrellas a Estética y Salud en Google Maps', '1. Busca \'Estética y Salud\' en Google Maps.\n2. Escribe una calificación de 5 estrellas con un comentario positivo.\n3. Toma captura de pantalla de tu reseña publicada.\n4. Súbela aquí.', 'https://maps.google.com', 'Google Maps', 400.0, 50000.0, 50, 0, 'ACTIVE', '2026-12-31 23:59:59', 3),
+                ('Ver Video de YouTube por 30 segundos', '1. Haz clic en \'Ir a la tarea\' para reproducir el video de YouTube.\n2. Mantén abierta la página de reproducción por un mínimo de 30 segundos (el cronómetro de la app validará tu permanencia).\n3. Al finalizar los 30 segundos, toma una captura del video reproduciéndose.\n4. Sube la captura de pantalla y envía.', 'https://youtube.com', 'Ver Video', 150.0, 50000.0, 150, 0, 'ACTIVE', '2026-12-31 23:59:59', 1)
+            """)
+    except Exception:
+        pass
 
     # Insertar cajeros por defecto de prueba para poblar el mapa
     try:
@@ -1882,6 +1959,358 @@ def get_all_p2p_transactions():
         JOIN users u2 ON t.cajeroId = u2.wallet_code
         ORDER BY t.fechaInicio DESC
     """, conn)
+    conn.close()
+    return df
+
+# --- SISTEMA DE CHAMBA SD (MURO DE TAREAS PAGADAS) ---
+
+def is_user_chamba_blocked(user_code):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT chamba_blocked, chamba_rejected_count FROM users WHERE wallet_code = ?", (user_code,))
+    res = cursor.fetchone()
+    conn.close()
+    if res:
+        return bool(res[0]), res[1] or 0
+    return False, 0
+
+def get_chamba_tasks(user_code, filter_type='Todas'):
+    conn = get_db_connection()
+    query = """
+        SELECT t.id, t.titulo, t.instrucciones, t.linkExterno, t.tipo, t.recompensaSD, t.cuposTotales, t.cuposUsados, t.fechaVencimiento, t.negocioId, n.nombreNegocio
+        FROM tareas t
+        LEFT JOIN negocios_chamba n ON t.negocioId = n.id
+        WHERE t.estado = 'ACTIVE' 
+          AND t.cuposUsados < t.cuposTotales 
+          AND (t.fechaVencimiento IS NULL OR datetime(t.fechaVencimiento) > datetime('now'))
+          AND t.id NOT IN (
+              SELECT tc.tareaId FROM tareas_completadas tc 
+              WHERE tc.userId = ? AND tc.estado IN ('PENDING', 'APPROVED')
+          )
+    """
+    params = [user_code]
+    if filter_type != 'Todas':
+        query += " AND t.tipo = ?"
+        params.append(filter_type)
+    
+    df = pd.read_sql_query(query, conn, params=params)
+    conn.close()
+    return df
+
+def get_user_chamba_history(user_code):
+    conn = get_db_connection()
+    query = """
+        SELECT tc.id, tc.tareaId, t.titulo, t.recompensaSD, tc.estado, tc.fechaEnvio, tc.motivo_rechazo, t.tipo
+        FROM tareas_completadas tc
+        JOIN tareas t ON tc.tareaId = t.id
+        WHERE tc.userId = ?
+        ORDER BY tc.fechaEnvio DESC
+    """
+    df = pd.read_sql_query(query, conn, params=[user_code])
+    conn.close()
+    return df
+
+def submit_chamba_proof(tarea_id, user_code, image_bytes):
+    if not image_bytes:
+        return False, "Debes subir una imagen de comprobante válida."
+        
+    # Calculate hash
+    import hashlib
+    img_hash = hashlib.md5(image_bytes).hexdigest()
+    
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    # Check if user is blocked
+    cursor.execute("SELECT chamba_blocked FROM users WHERE wallet_code = ?", (user_code,))
+    user_row = cursor.fetchone()
+    if user_row and user_row[0] == 1:
+        conn.close()
+        return False, "⚠️ Tu cuenta está bloqueada de Chamba SD debido a múltiples rechazos por trampa."
+        
+    # Check if already submitted PENDING/APPROVED
+    cursor.execute("SELECT estado FROM tareas_completadas WHERE tareaId = ? AND userId = ? AND estado IN ('PENDING', 'APPROVED')", (tarea_id, user_code))
+    if cursor.fetchone():
+        conn.close()
+        return False, "⚠️ Ya has enviado un comprobante para esta tarea que está en revisión o ya fue aprobado."
+        
+    # Anti-cheat duplicate image check
+    cursor.execute("SELECT id, userId FROM tareas_completadas WHERE comprobante_hash = ? AND estado IN ('PENDING', 'APPROVED')", (img_hash,))
+    dup_row = cursor.fetchone()
+    if dup_row:
+        conn.close()
+        return False, "⚠️ Esta captura de pantalla ya ha sido utilizada como comprobante para otra tarea por ti o por otro usuario. No se permiten duplicados (Anti-Trampa)."
+        
+    try:
+        cursor.execute("""
+            INSERT INTO tareas_completadas (tareaId, userId, comprobanteUrl, estado, comprobante_hash)
+            VALUES (?, ?, ?, 'PENDING', ?)
+        """, (tarea_id, user_code, image_bytes, img_hash))
+        conn.commit()
+        conn.close()
+        return True, "¡Comprobante enviado para revisión! Revisaremos tu captura en menos de 6 horas."
+    except Exception as e:
+        conn.rollback()
+        conn.close()
+        return False, f"Error al enviar comprobante: {str(e)}"
+
+def get_pending_chamba_submissions():
+    conn = get_db_connection()
+    query = """
+        SELECT tc.id, tc.tareaId, tc.userId, tc.fechaEnvio, tc.comprobanteUrl, tc.comprobante_hash,
+               t.titulo, t.recompensaSD, t.tipo, u.fullname, u.username
+         FROM tareas_completadas tc
+         JOIN tareas t ON tc.tareaId = t.id
+         JOIN users u ON tc.userId = u.wallet_code
+         WHERE tc.estado = 'PENDING'
+         ORDER BY tc.fechaEnvio ASC
+    """
+    df = pd.read_sql_query(query, conn)
+    conn.close()
+    return df
+
+def get_pending_chamba_submissions_count():
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT COUNT(*) FROM tareas_completadas WHERE estado = 'PENDING'")
+        count = cursor.fetchone()[0]
+    except Exception:
+        count = 0
+    conn.close()
+    return count
+
+def approve_chamba_submission(submission_id, admin_code):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    # Get details
+    cursor.execute("""
+        SELECT tc.userId, tc.tareaId, t.titulo, t.recompensaSD, t.cuposUsados, t.cuposTotales
+        FROM tareas_completadas tc
+        JOIN tareas t ON tc.tareaId = t.id
+        WHERE tc.id = ? AND tc.estado = 'PENDING'
+    """, (submission_id,))
+    row = cursor.fetchone()
+    if not row:
+        conn.close()
+        return False, "No se encontró la solicitud o ya fue revisada."
+        
+    user_code, tarea_id, t_titulo, recompensa, cupos_usados, cupos_totales = row
+    
+    if cupos_usados >= cupos_totales:
+        conn.close()
+        return False, "⚠️ Esta tarea ya alcanzó el límite de cupos totales permitidos."
+        
+    try:
+        # Approve completion
+        cursor.execute("""
+            UPDATE tareas_completadas 
+            SET estado = 'APPROVED', fechaRevision = CURRENT_TIMESTAMP, adminQueReviso = ?
+            WHERE id = ?
+        """, (admin_code, submission_id))
+        
+        # Increment used spots
+        cursor.execute("UPDATE tareas SET cuposUsados = cuposUsados + 1 WHERE id = ?", (tarea_id,))
+        
+        # Check if it reached limit, and if so, mark completed
+        if cupos_usados + 1 >= cupos_totales:
+            cursor.execute("UPDATE tareas SET estado = 'COMPLETED' WHERE id = ?", (tarea_id,))
+            
+        conn.commit()
+        conn.close()
+        
+        # Pay user SD using existing send_points
+        success, msg = send_points("99999", user_code, recompensa)
+        if success:
+            add_notification(
+                user_code,
+                f"🟢 <b>¡Tarea Aprobada!</b> Tu comprobante para la tarea <b>{t_titulo}</b> fue aprobado. "
+                f"Se han acreditado <b>{format_num(recompensa)} SD</b> directamente a tu balance."
+            )
+        return success, msg
+    except Exception as e:
+        conn.rollback()
+        conn.close()
+        return False, f"Error al procesar la aprobación: {str(e)}"
+
+def reject_chamba_submission(submission_id, motivo, admin_code):
+    if not motivo.strip():
+        return False, "Debes proporcionar un motivo para rechazar la tarea."
+        
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    cursor.execute("""
+        SELECT tc.userId, t.titulo, u.fullname
+        FROM tareas_completadas tc
+        JOIN tareas t ON tc.tareaId = t.id
+        JOIN users u ON tc.userId = u.wallet_code
+        WHERE tc.id = ? AND tc.estado = 'PENDING'
+    """, (submission_id,))
+    row = cursor.fetchone()
+    if not row:
+        conn.close()
+        return False, "No se encontró la solicitud o ya fue revisada."
+        
+    user_code, t_titulo, fullname = row
+    
+    try:
+        # Reject completion
+        cursor.execute("""
+            UPDATE tareas_completadas 
+            SET estado = 'REJECTED', fechaRevision = CURRENT_TIMESTAMP, adminQueReviso = ?, motivo_rechazo = ?
+            WHERE id = ?
+        """, (admin_code, motivo, submission_id))
+        
+        # Increment rejected count
+        cursor.execute("UPDATE users SET chamba_rejected_count = chamba_rejected_count + 1 WHERE wallet_code = ?", (user_code,))
+        
+        # Check current count
+        cursor.execute("SELECT chamba_rejected_count FROM users WHERE wallet_code = ?", (user_code,))
+        rej_count = cursor.fetchone()[0] or 0
+        
+        is_blocked_now = False
+        if rej_count >= 3:
+            cursor.execute("UPDATE users SET chamba_blocked = 1 WHERE wallet_code = ?", (user_code,))
+            is_blocked_now = True
+            
+        conn.commit()
+        conn.close()
+        
+        # Notify
+        if is_blocked_now:
+            add_notification(
+                user_code,
+                f"🚫 <b>¡BLOQUEO DE CHAMBA SD!</b> Tu comprobante para la tarea '{t_titulo}' fue rechazado por: <i>{motivo}</i>. "
+                f"Has acumulado {rej_count} rechazos por trampa y tu acceso al módulo de Chamba ha sido bloqueado permanentemente."
+            )
+        else:
+            add_notification(
+                user_code,
+                f"🔴 <b>Tarea Rechazada:</b> Tu comprobante para la tarea '{t_titulo}' fue rechazado por: <i>{motivo}</i>. "
+                f"Llevas {rej_count} de 3 rechazos antes de ser bloqueado permanentemente de Chamba SD."
+            )
+        return True, "Tarea rechazada correctamente."
+    except Exception as e:
+        conn.rollback()
+        conn.close()
+        return False, f"Error al procesar el rechazo: {str(e)}"
+
+def get_chamba_financials_summary():
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    cursor.execute("SELECT SUM(costoCOPPagadoPorNegocio) FROM tareas")
+    total_billed = cursor.fetchone()[0] or 0.0
+    
+    cursor.execute("""
+        SELECT SUM(t.recompensaSD) 
+        FROM tareas_completadas tc
+        JOIN tareas t ON tc.tareaId = t.id
+        WHERE tc.estado = 'APPROVED'
+    """)
+    total_paid_sd = cursor.fetchone()[0] or 0.0
+    
+    cursor.execute("SELECT COUNT(*) FROM tareas WHERE estado = 'ACTIVE'")
+    active_tasks = cursor.fetchone()[0] or 0
+    
+    cursor.execute("SELECT COUNT(*) FROM tareas_completadas WHERE estado = 'APPROVED'")
+    completed_tasks = cursor.fetchone()[0] or 0
+    
+    conn.close()
+    return {
+        "total_billed_cop": total_billed,
+        "total_paid_sd": total_paid_sd,
+        "active_tasks_count": active_tasks,
+        "completed_tasks_count": completed_tasks
+    }
+
+def get_all_negocios_chamba():
+    conn = get_db_connection()
+    query = "SELECT id, nombreNegocio, contacto, totalInvertidoCOP FROM negocios_chamba ORDER BY totalInvertidoCOP DESC"
+    df = pd.read_sql_query(query, conn)
+    conn.close()
+    return df
+
+def create_negocio_chamba(nombre, contacto, total_invertido):
+    if not nombre.strip():
+        return False, "El nombre del negocio no puede estar vacío."
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
+            INSERT INTO negocios_chamba (nombreNegocio, contacto, totalInvertidoCOP)
+            VALUES (?, ?, ?)
+        """, (nombre, contacto, total_invertido))
+        conn.commit()
+        conn.close()
+        return True, "Negocio registrado exitosamente."
+    except Exception as e:
+        conn.rollback()
+        conn.close()
+        return False, f"Error al registrar negocio: {str(e)}"
+
+def create_chamba_task(titulo, instrucciones, link_externo, tipo, recompensa_sd, costo_cop, cupos_totales, fecha_vencimiento, negocio_id):
+    if not titulo.strip() or not instrucciones.strip() or not link_externo.strip():
+        return False, "Todos los campos de la tarea son obligatorios."
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
+            INSERT INTO tareas (titulo, instrucciones, linkExterno, tipo, recompensaSD, costoCOPPagadoPorNegocio, cuposTotales, cuposUsados, estado, fechaVencimiento, negocioId)
+            VALUES (?, ?, ?, ?, ?, ?, ?, 0, 'ACTIVE', ?, ?)
+        """, (titulo, instrucciones, link_externo, tipo, recompensa_sd, costo_cop, cupos_totales, fecha_vencimiento, negocio_id))
+        conn.commit()
+        conn.close()
+        return True, "Tarea creada exitosamente."
+    except Exception as e:
+        conn.rollback()
+        conn.close()
+        return False, f"Error al crear la tarea: {str(e)}"
+
+def update_chamba_task(tarea_id, titulo, instrucciones, link_externo, tipo, recompensa_sd, costo_cop, cupos_totales, fecha_vencimiento, negocio_id, estado):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
+            UPDATE tareas
+            SET titulo = ?, instrucciones = ?, linkExterno = ?, tipo = ?, recompensaSD = ?, 
+                costoCOPPagadoPorNegocio = ?, cuposTotales = ?, fechaVencimiento = ?, negocioId = ?, estado = ?
+            WHERE id = ?
+        """, (titulo, instrucciones, link_externo, tipo, recompensa_sd, costo_cop, cupos_totales, fecha_vencimiento, negocio_id, estado, tarea_id))
+        conn.commit()
+        conn.close()
+        return True, "Tarea actualizada exitosamente."
+    except Exception as e:
+        conn.rollback()
+        conn.close()
+        return False, f"Error al actualizar la tarea: {str(e)}"
+
+def delete_chamba_task(tarea_id):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("DELETE FROM tareas_completadas WHERE tareaId = ?", (tarea_id,))
+        cursor.execute("DELETE FROM tareas WHERE id = ?", (tarea_id,))
+        conn.commit()
+        conn.close()
+        return True, "Tarea eliminada definitivamente."
+    except Exception as e:
+        conn.rollback()
+        conn.close()
+        return False, f"Error al eliminar la tarea: {str(e)}"
+
+def get_all_chamba_tasks_admin():
+    conn = get_db_connection()
+    query = """
+        SELECT t.id, t.titulo, t.instrucciones, t.linkExterno, t.tipo, t.recompensaSD, 
+               t.costoCOPPagadoPorNegocio, t.cuposTotales, t.cuposUsados, t.estado, t.fechaVencimiento, t.negocioId, n.nombreNegocio
+        FROM tareas t
+        LEFT JOIN negocios_chamba n ON t.negocioId = n.id
+        ORDER BY t.id DESC
+    """
+    df = pd.read_sql_query(query, conn)
     conn.close()
     return df
 
@@ -4097,7 +4526,7 @@ st.markdown(f"""
 
 if not st.session_state.logged_in:
     st.sidebar.title("🔐 Alianza CryptoWallet")
-    st.sidebar.markdown("<div style='background-color: #1e293b; padding: 6px 12px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 15px; text-align: center;'><span style='color: #ffd700; font-size: 0.85rem; font-weight: bold;'>🚀 Versión de la App: v73</span></div>", unsafe_allow_html=True)
+    st.sidebar.markdown("<div style='background-color: #1e293b; padding: 6px 12px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 15px; text-align: center;'><span style='color: #ffd700; font-size: 0.85rem; font-weight: bold;'>🚀 Versión de la App: v74</span></div>", unsafe_allow_html=True)
     menu = st.sidebar.selectbox("Seleccione una opción", ["Iniciar Sesión", "Registrarse"])
     
     if menu == "Iniciar Sesión":
@@ -4165,7 +4594,7 @@ if not st.session_state.logged_in:
 else:
     # Sidebar de usuario conectado con toques dorados
     st.sidebar.markdown(f"<h2 class='golden-title'>👋 {st.session_state.fullname}</h2>", unsafe_allow_html=True)
-    st.sidebar.markdown("<div style='background-color: #1e293b; padding: 6px 12px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 15px; text-align: center;'><span style='color: #ffd700; font-size: 0.85rem; font-weight: bold;'>🚀 Versión de la App: v73</span></div>", unsafe_allow_html=True)
+    st.sidebar.markdown("<div style='background-color: #1e293b; padding: 6px 12px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 15px; text-align: center;'><span style='color: #ffd700; font-size: 0.85rem; font-weight: bold;'>🚀 Versión de la App: v74</span></div>", unsafe_allow_html=True)
     st.sidebar.markdown(f"**Billetera ID (Código):** `{st.session_state.wallet_code}`")
     
     # Obtener el número de notificaciones pendientes
@@ -4195,7 +4624,7 @@ else:
     balance_usd = balance * token_price_usd
     balance_cop_equiv = balance_usd * usd_cop
     
-    nav_options = ["🏠 Inicio y Balance", "💸 Enviar SD", "📥 Comprar SD", "🔄 Swap y Retiros", "⛏️ Minería SIAD", "🛍️ Tienda Alianza", "🎮 Juegos", "🚚 Mensajería Alianza", "👥 Cajeros P2P", "🌾 Mi Finca SD", "👥 Mis Referidos", notif_label, "👤 Mi Perfil", "🛡️ Términos y Seguridad"]
+    nav_options = ["🏠 Inicio y Balance", "💸 Enviar SD", "📥 Comprar SD", "🔄 Swap y Retiros", "⛏️ Minería SIAD", "🛍️ Tienda Alianza", "🎮 Juegos", "🚚 Mensajería Alianza", "👥 Cajeros P2P", "🌾 Mi Finca SD", "🛠️ Chamba SD", "👥 Mis Referidos", notif_label, "👤 Mi Perfil", "🛡️ Términos y Seguridad"]
     
     # El checkbox de Modo Propietario ahora es exclusivo para la cuenta del propietario de la app (@admin) o wallet_code '99999'
     is_owner_user = (st.session_state.username == 'admin' or st.session_state.wallet_code == '99999' or st.session_state.is_admin)
@@ -6967,6 +7396,218 @@ else:
                 user_recs_df_disp.columns = ['Fecha Cosecha', 'Ejemplar', 'Monto SD', 'Estado']
                 st.dataframe(user_recs_df_disp, use_container_width=True)
 
+    # --- SECCIÓN: CHAMBA SD (MURO DE TAREAS PAGADAS) ---
+    elif choice == "🛠️ Chamba SD":
+        st.markdown("<h1 class='golden-title'>🛠️ Chamba SD - Gana SD Gratis</h1>", unsafe_allow_html=True)
+        st.write("Completa micro-tareas de redes sociales, califica negocios o visita sitios web para ganar tokens SD de forma gratuita.")
+        
+        # 1. Anticheat check (blocked)
+        is_blocked, rej_count = is_user_chamba_blocked(st.session_state.wallet_code)
+        if is_blocked:
+            st.error("🚫 **ACCESO BLOQUEADO:** Has sido bloqueado permanentemente del módulo Chamba SD debido a que has acumulado 3 rechazos de comprobantes por intento de trampa.")
+            # Still show user history
+            st.markdown("---")
+            st.subheader("📋 Tu Historial de Tareas completadas")
+            df_hist_blocked = get_user_chamba_history(st.session_state.wallet_code)
+            if len(df_hist_blocked) == 0:
+                st.info("No tienes tareas registradas.")
+            else:
+                st.dataframe(df_hist_blocked, use_container_width=True)
+        else:
+            # 2. Main workflow
+            # Total earned today
+            conn_ct = get_db_connection()
+            cursor_ct = conn_ct.cursor()
+            cursor_ct.execute("""
+                SELECT SUM(t.recompensaSD) 
+                FROM tareas_completadas tc
+                JOIN tareas t ON tc.tareaId = t.id
+                WHERE tc.userId = ? AND tc.estado = 'APPROVED' AND DATE(tc.fechaEnvio) = DATE('now')
+            """)
+            today_earned = cursor_ct.fetchone()[0] or 0.0
+            conn_ct.close()
+            
+            # Display metrics card
+            st.markdown(f"""
+            <div class="card" style="border-left: 5px solid #10b981; padding: 15px; margin-bottom: 20px; display: flex; align-items: center; justify-content: space-between;">
+                <div>
+                    <h3 style="margin: 0; color: #10b981; font-size: 1.15rem; font-weight: bold; text-transform: uppercase;">💰 Mis SD Ganados Hoy por Tareas</h3>
+                    <p style="margin: 5px 0 0 0; font-size: 0.85rem; color: #a1a1aa;">Tokens SD acumulados y acreditados durante el día de hoy.</p>
+                </div>
+                <div>
+                    <span style="font-size: 2.2rem; font-weight: 900; color: #ffffff; text-shadow: 0 0 10px rgba(16, 185, 129, 0.35);">{format_num(today_earned)} SD</span>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            if "selected_chamba_task_id" not in st.session_state:
+                st.session_state.selected_chamba_task_id = None
+                
+            if st.session_state.selected_chamba_task_id is None:
+                # Filter buttons/radio
+                filter_choice = st.radio("🔍 Filtrar Tareas por Red Social o Tipo:", ["Todas", "Instagram", "TikTok", "YouTube", "Google Maps", "Ver Video", "Sitio Web", "Personalizada"], horizontal=True, key="chamba_filter_selector")
+                
+                tasks_df = get_chamba_tasks(st.session_state.wallet_code, filter_choice)
+                
+                st.markdown("### 📋 Tareas Disponibles")
+                if len(tasks_df) == 0:
+                    st.info("🎉 **¡Al día!** No hay tareas de este tipo disponibles para completar en este momento. Vuelve más tarde para nuevos desafíos.")
+                else:
+                    col_t_cards = st.columns(3)
+                    for idx, row in tasks_df.iterrows():
+                        col_idx = idx % 3
+                        with col_t_cards[col_idx]:
+                            # Map social icons
+                            icon_map = {
+                                "Instagram": "📸",
+                                "TikTok": "🎵",
+                                "Facebook": "👥",
+                                "YouTube": "🎥",
+                                "Google Maps": "🗺️",
+                                "Ver Video": "⏱️🎥",
+                                "Sitio Web": "🌐",
+                                "Personalizada": "📝"
+                            }
+                            icon = icon_map.get(row['tipo'], "💼")
+                            
+                            st.markdown(f"""
+                            <div class="card" style="border-color: #ffd700; min-height: 250px; display: flex; flex-direction: column; justify-content: space-between;">
+                                <div>
+                                    <h4 style="color: #ffd700; margin-top:0; display:flex; align-items:center; gap:6px;">{icon} {row['tipo']}</h4>
+                                    <h5 style="color:#ffffff; margin: 5px 0;">{row['titulo']}</h5>
+                                    <p style="font-size:0.8rem; color:#a1a1aa; line-height: 1.2rem;">Patrocinado por: <b>{row['nombreNegocio'] or 'Alianza Business'}</b></p>
+                                </div>
+                                <div style="margin-top: 15px;">
+                                    <span style="font-size: 1.4rem; font-weight: 900; color: #10b981; display:block; margin-bottom:10px;">+{format_num(row['recompensaSD'])} SD</span>
+                                    <span style="font-size:0.75rem; color:#888899; display:block; margin-bottom:5px;">Cupos: {row['cuposUsados']}/{row['cuposTotales']} completados</span>
+                                </div>
+                            </div>
+                            """, unsafe_allow_html=True)
+                            if st.button(f"Hacer Tarea - {format_num(row['recompensaSD'])} SD", key=f"do_chamba_task_btn_{row['id']}", use_container_width=True):
+                                st.session_state.selected_chamba_task_id = int(row['id'])
+                                # Initialize Youtube start timer if needed
+                                if row['tipo'] == 'Ver Video':
+                                    st.session_state.chamba_youtube_start_time = datetime.now()
+                                st.rerun()
+                                
+                # Display history table below
+                st.markdown("---")
+                st.subheader("📋 Tu Historial de Tareas")
+                df_hist_user = get_user_chamba_history(st.session_state.wallet_code)
+                if len(df_hist_user) == 0:
+                    st.info("No tienes tareas realizadas todavía. ¡Completa tu primera tarea arriba!")
+                else:
+                    df_hist_display = df_hist_user.copy()
+                    df_hist_display['Estado'] = df_hist_display['estado'].apply(
+                        lambda s: "⏳ Pendiente de Revisión" if s == 'PENDING' else ("🟢 Aprobada / Pagada" if s == 'APPROVED' else "🔴 Rechazada")
+                    )
+                    df_hist_display['Recompensa'] = df_hist_display['recompensaSD'].apply(lambda x: f"+{format_num(x)} SD")
+                    
+                    # render history details
+                    for idx, r in df_hist_display.iterrows():
+                        status_color = "#ffd700" if r['estado'] == 'PENDING' else ("#10b981" if r['estado'] == 'APPROVED' else "#ef4444")
+                        with st.expander(f"💼 Tarea: {r['titulo']} - {r['Recompensa']} - {r['Estado']}"):
+                            st.write(f"<b>Tipo de Tarea:</b> {r['tipo']}", unsafe_allow_html=True)
+                            st.write(f"<b>Fecha de Envío:</b> {r['fechaEnvio']}", unsafe_allow_html=True)
+                            if r['estado'] == 'REJECTED':
+                                st.error(f"❌ <b>Motivo del Rechazo:</b> {r['motivo_rechazo']}")
+                            elif r['estado'] == 'APPROVED':
+                                st.success("✅ ¡Esta tarea ya fue verificada y los tokens SD fueron depositados en tu billetera!")
+                            else:
+                                st.warning("⏳ Tu comprobante está bajo revisión de soporte. Recibirás una notificación en menos de 6 horas.")
+            else:
+                # Selected single task screen
+                # Query selected task details
+                conn_st = get_db_connection()
+                cursor_st = conn_st.cursor()
+                cursor_st.execute("""
+                    SELECT t.id, t.titulo, t.instrucciones, t.linkExterno, t.tipo, t.recompensaSD, n.nombreNegocio
+                    FROM tareas t
+                    LEFT JOIN negocios_chamba n ON t.negocioId = n.id
+                    WHERE t.id = ?
+                """, (st.session_state.selected_chamba_task_id,))
+                task_res = cursor_st.fetchone()
+                conn_st.close()
+                
+                if not task_res:
+                    st.session_state.selected_chamba_task_id = None
+                    st.rerun()
+                    
+                t_id, t_titulo, t_inst, t_link, t_tipo, t_recompensa, t_neg_name = task_res
+                
+                # Back button
+                if st.button("↩️ Volver al Listado de Tareas"):
+                    st.session_state.selected_chamba_task_id = None
+                    if "chamba_youtube_start_time" in st.session_state:
+                        del st.session_state.chamba_youtube_start_time
+                    st.rerun()
+                    
+                st.markdown(f"## 📋 Tarea: {t_titulo}")
+                st.write(f"💼 **Patrocinado por:** {t_neg_name or 'Alianza Business'} | 💰 **Recompensa:** `+{format_num(t_recompensa)} SD`")
+                
+                col_inst, col_upload = st.columns([1, 1])
+                
+                with col_inst:
+                    st.markdown("### 📝 Instrucciones Paso a Paso:")
+                    # Display step-by-step
+                    lines = t_inst.split('\n')
+                    for line in lines:
+                        st.write(line)
+                        
+                    st.markdown("---")
+                    
+                    # YouTube countdown validator
+                    is_ver_video = (t_tipo == "Ver Video")
+                    is_time_valid = True
+                    
+                    if is_ver_video:
+                        st.markdown("### ⏱️ Cronómetro de Permanencia")
+                        if "chamba_youtube_start_time" in st.session_state:
+                            elapsed = (datetime.now() - st.session_state.chamba_youtube_start_time).total_seconds()
+                            if elapsed < 30:
+                                is_time_valid = False
+                                st.warning(f"⏳ **Validando permanencia:** Debes reproducir el video por un mínimo de 30 segundos. Llevas **{int(elapsed)} segundos** abiertos. Espera en esta pantalla antes de subir la captura.")
+                                if st.button("🔄 Actualizar Cronómetro"):
+                                    st.rerun()
+                            else:
+                                st.success("✅ **¡Permanencia Completada!** Ya has visto el video por más de 30 segundos. Ahora puedes subir la captura de pantalla de comprobante abajo.")
+                        else:
+                            st.session_state.chamba_youtube_start_time = datetime.now()
+                            st.rerun()
+                    
+                    # Link button
+                    st.link_button("🔗 IR A LA TAREA (Enlace Externo)", url=t_link, use_container_width=True)
+                    
+                with col_upload:
+                    st.markdown("### 📷 Subir Prueba de Trabajo")
+                    st.write("Sube una captura de pantalla clara (foto o pantallazo PNG, JPG, JPEG) donde se demuestre fehacientemente que completaste los pasos solicitados.")
+                    
+                    # Proof uploader
+                    proof_file = st.file_uploader("Adjuntar captura de pantalla de comprobante (Obligatorio):", type=["png", "jpg", "jpeg"], key=f"proof_uploader_task_{t_id}")
+                    
+                    if st.button("📤 ENVIAR COMPROBANTE PARA REVISIÓN", use_container_width=True):
+                        if not proof_file:
+                            st.error("⚠️ Debes adjuntar la imagen de comprobante (pantallazo) para que la tarea sea revisada.")
+                        elif is_ver_video and not is_time_valid:
+                            st.error("⚠️ No has cumplido con el tiempo mínimo de visualización de 30 segundos en el video de YouTube.")
+                        else:
+                            try:
+                                img_bytes = proof_file.read()
+                                success, msg = submit_chamba_proof(t_id, st.session_state.wallet_code, img_bytes)
+                                if success:
+                                    st.success(msg)
+                                    st.balloons()
+                                    st.session_state.selected_chamba_task_id = None
+                                    if "chamba_youtube_start_time" in st.session_state:
+                                        del st.session_state.chamba_youtube_start_time
+                                    import time
+                                    time.sleep(3.0)
+                                    st.rerun()
+                                else:
+                                    st.error(msg)
+                            except Exception as ex:
+                                st.error(f"Error procesando el comprobante: {str(ex)}")
+
     # --- SECCIÓN: MIS REFERIDOS (ÁRBOL GENEALÓGICO) ---
     elif choice == "👥 Mis Referidos":
 
@@ -7535,7 +8176,9 @@ else:
             pending_finca_purchases_count = 0
         conn_fa.close()
 
-        tab_mint, tab_claims, tab_bills_claims, tab_withdraws, tab_store, tab_store_catalog, tab_games_control, tab_staking_admin, tab_p2p_admin, tab_finca_admin, tab_referrals, tab_fees, tab_messenger, tab_broadcast, tab_settings_token = st.tabs([
+        pending_chamba_proofs_count = get_pending_chamba_submissions_count()
+
+        tab_mint, tab_claims, tab_bills_claims, tab_withdraws, tab_store, tab_store_catalog, tab_games_control, tab_staking_admin, tab_p2p_admin, tab_finca_admin, tab_chamba_admin, tab_referrals, tab_fees, tab_messenger, tab_broadcast, tab_settings_token = st.tabs([
             "💸 Emisión de Monedas", 
             f"📥 Comprobantes por Confirmar ({pending_claims_count})", 
             f"🪙 Solicitudes BILLS -> SD ({pending_bills_count})",
@@ -7546,6 +8189,7 @@ else:
             "⛏️ Control de Staking/Minería",
             f"👥 Gestión P2P / Cajeros ({pending_disputes_count})",
             f"🌾 Gestión Finca SD ({pending_finca_purchases_count})",
+            f"💼 Gestión Chamba SD ({pending_chamba_proofs_count})",
             f"👥 Comisiones de Referidos ({pending_rewards_count})",
             "📊 Comisiones de Plataforma",
             "🚚 Control de Mensajería",
@@ -8955,6 +9599,299 @@ else:
                     recs_audit_df_disp = recs_audit_df_disp[['fecha', 'Usuario', 'nombre', 'Monto SD', 'Estado']]
                     recs_audit_df_disp.columns = ['Fecha', 'Propietario', 'Ejemplar', 'SD de Cosecha', 'Estado']
                     st.dataframe(recs_audit_df_disp, use_container_width=True)
+
+        with tab_chamba_admin:
+            st.subheader("💼 Consola de Administración de Chamba SD")
+            st.write("Crea y administra micro-tareas pagadas, valida las capturas de pantalla de los usuarios y consulta el estado económico en tiempo real.")
+            
+            # Sub-tabs
+            tab_cha_pending, tab_cha_crud, tab_cha_financials, tab_cha_clients = st.tabs([
+                "📥 Bandeja de Revisión", 
+                "➕ Crear/Editar Tareas", 
+                "📊 Dashboard Financiero", 
+                "👥 Gestión de Clientes"
+            ])
+            
+            # Sub-tab 1: Bandeja de Revisión
+            with tab_cha_pending:
+                st.subheader("📥 Bandeja de Revisión de Tareas")
+                st.write("Verifica con atención las pruebas de trabajo enviadas por los usuarios antes de autorizar el pago.")
+                
+                pending_subs = get_pending_chamba_submissions()
+                if len(pending_subs) == 0:
+                    st.info("🎉 ¡Al día! No hay comprobantes de Chamba SD pendientes de verificación.")
+                else:
+                    for idx, row in pending_subs.iterrows():
+                        with st.expander(f"📥 Envío #{row['id']} - Usuario: {row['fullname']} ({row['userId']}) - Tarea: {row['titulo']}"):
+                            col_info, col_image = st.columns([1, 1])
+                            
+                            with col_info:
+                                st.markdown(f"""
+                                <div class="card" style="border-left: 3px solid #ffd700;">
+                                    <p><b>Usuario:</b> {row['fullname']} (@{row['username']})</p>
+                                    <p><b>Código de Billetera:</b> <code style="color:#10b981;">{row['userId']}</code></p>
+                                    <p><b>Tarea completada:</b> {row['titulo']} (ID: #{row['tareaId']})</p>
+                                    <p><b>Tipo de Tarea:</b> {row['tipo']}</p>
+                                    <p><b>Recompensa establecida:</b> <span style="color:#10b981; font-weight:bold;">{format_num(row['recompensaSD'])} SD</span></p>
+                                    <p><b>Fecha de Envío:</b> {row['fechaEnvio']}</p>
+                                </div>
+                                """, unsafe_allow_html=True)
+                                
+                                with st.form(f"admin_review_chamba_form_{row['id']}"):
+                                    st.write("<b>Acciones para esta Solicitud:</b>", unsafe_allow_html=True)
+                                    motivo_rej = st.text_input("Motivo de rechazo (Obligatorio sólo en caso de rechazo):", placeholder="Ej: Captura borrosa, no corresponde a la cuenta, etc.", key=f"chamba_motivo_rej_val_{row['id']}")
+                                    
+                                    col_app_c, col_rej_c = st.columns(2)
+                                    with col_app_c:
+                                        submit_app_ch = st.form_submit_button("👍 APROBAR Y ENVIAR SD")
+                                        if submit_app_ch:
+                                            success, msg = approve_chamba_submission(row['id'], st.session_state.wallet_code)
+                                            if success:
+                                                st.success("¡Comprobante aprobado y recompensa SD enviada con éxito!")
+                                                st.balloons()
+                                                st.rerun()
+                                            else:
+                                                st.error(msg)
+                                    with col_rej_c:
+                                        submit_rej_ch = st.form_submit_button("❌ RECHAZAR POR TRAMPA")
+                                        if submit_rej_ch:
+                                            if not motivo_rej.strip():
+                                                st.error("⚠️ Debes ingresar un motivo de rechazo en el campo de texto.")
+                                            else:
+                                                success, msg = reject_chamba_submission(row['id'], motivo_rej, st.session_state.wallet_code)
+                                                if success:
+                                                    st.warning("Comprobante rechazado por trampa. Se incrementó la penalización del usuario.")
+                                                    st.rerun()
+                                                else:
+                                                    st.error(msg)
+                                                    
+                            with col_image:
+                                st.subheader("📷 Captura de Comprobante")
+                                try:
+                                    st.image(row['comprobanteUrl'], caption=f"Prueba de trabajo de {row['fullname']}", use_container_width=True)
+                                except Exception as e_ch_img:
+                                    st.error(f"No se pudo cargar la imagen: {str(e_ch_img)}")
+                                    
+            # Sub-tab 2: Crear/Editar Tareas
+            with tab_cha_crud:
+                st.subheader("➕ Gestión de Catálogo de Tareas")
+                
+                col_crud_l, col_crud_r = st.columns([1, 1])
+                
+                with col_crud_l:
+                    st.write("<b>🛠️ Crear Nueva Tarea de Micro-Trabajo:</b>", unsafe_allow_html=True)
+                    
+                    # Fetch active businesses list to select
+                    businesses_df = get_all_negocios_chamba()
+                    
+                    if len(businesses_df) == 0:
+                        st.info("⚠️ Primero debes registrar al menos un negocio/cliente en la pestaña 'Gestión de Clientes' para poder asignarle tareas pagadas.")
+                    else:
+                        biz_opts = {r['nombreNegocio']: r['id'] for idx, r in businesses_df.iterrows()}
+                        
+                        with st.form("admin_create_task_form_main"):
+                            t_title_inp = st.text_input("Título de la Tarea:", placeholder="Ej: Sigue a @MiPagina en Instagram")
+                            t_inst_inp = st.text_area("Instrucciones Paso a Paso (Soporta saltos de línea):", placeholder="1. Entra a la cuenta...\n2. Dale seguir...\n3. Captura pantalla y súbela.")
+                            t_link_inp = st.text_input("Enlace Externo de la Tarea:", placeholder="Ej: https://instagram.com/user")
+                            t_type_inp = st.selectbox("Tipo de Tarea:", ["Instagram", "TikTok", "Facebook", "YouTube", "Google Maps", "Ver Video", "Sitio Web", "Personalizada"])
+                            t_reward_inp = st.number_input("Recompensa al Usuario (SD):", min_value=0.0001, value=300.0, format="%.4f")
+                            t_cost_inp = st.number_input("Costo Pagado por el Negocio (COP):", min_value=0.0, value=50000.0, step=5000.0)
+                            t_spots_inp = st.number_input("Cantidad de Cupos Totales (Usuarios únicos):", min_value=1, value=100, step=10)
+                            t_biz_inp = st.selectbox("Negocio Patrocinador:", list(biz_opts.keys()))
+                            
+                            st.write("<b>🕒 Fecha de Vencimiento de la Tarea:</b>", unsafe_allow_html=True)
+                            col_td1, col_td2 = st.columns(2)
+                            with col_td1:
+                                t_date_inp = st.date_input("Fecha:", value=datetime.now().date() + timedelta(days=30), key="chamba_new_task_date")
+                            with col_td2:
+                                t_time_inp = st.time_input("Hora:", value=datetime.now().time(), key="chamba_new_task_time")
+                                
+                            submit_new_task = st.form_submit_button("⚽ Publicar Tarea en Chamba SD")
+                            
+                            if submit_new_task:
+                                final_dt_str = f"{t_date_inp} {t_time_inp.strftime('%H:%M:%S')}"
+                                success, msg = create_chamba_task(t_title_inp, t_inst_inp, t_link_inp, t_type_inp, t_reward_inp, t_cost_inp, t_spots_inp, final_dt_str, biz_opts[t_biz_inp])
+                                if success:
+                                    st.success(msg)
+                                    st.rerun()
+                                else:
+                                    st.error(msg)
+                                    
+                with col_crud_r:
+                    st.write("<b>✏️ Listado de Tareas Existentes:</b>", unsafe_allow_html=True)
+                    all_tasks_df = get_all_chamba_tasks_admin()
+                    
+                    if len(all_tasks_df) == 0:
+                        st.info("No hay tareas creadas todavía.")
+                    else:
+                        biz_opts = {r['nombreNegocio']: r['id'] for idx, r in get_all_negocios_chamba().iterrows()}
+                        for idx, r in all_tasks_df.iterrows():
+                            # Show status indicator
+                            st_indicator = "🟢 Activa" if r['estado'] == 'ACTIVE' else ("🟡 Pausada" if r['estado'] == 'PAUSED' else "🔴 Finalizada")
+                            with st.expander(f"💼 #{r['id']} - {r['titulo']} ({st_indicator})"):
+                                with st.form(f"admin_edit_task_form_{r['id']}"):
+                                    edit_t_title = st.text_input("Título:", value=r['titulo'])
+                                    edit_t_inst = st.text_area("Instrucciones:", value=r['instrucciones'])
+                                    edit_t_link = st.text_input("Enlace Externo:", value=r['linkExterno'])
+                                    edit_t_type = st.selectbox("Tipo:", ["Instagram", "TikTok", "Facebook", "YouTube", "Google Maps", "Ver Video", "Sitio Web", "Personalizada"], index=["Instagram", "TikTok", "Facebook", "YouTube", "Google Maps", "Ver Video", "Sitio Web", "Personalizada"].index(r['tipo']))
+                                    edit_t_reward = st.number_input("Recompensa (SD):", value=float(r['recompensaSD']), format="%.4f")
+                                    edit_t_cost = st.number_input("Costo de Negocio (COP):", value=float(r['costoCOPPagadoPorNegocio']), step=1000.0)
+                                    edit_t_spots = st.number_input("Cupos Totales:", value=int(r['cuposTotales']), step=10)
+                                    
+                                    # Business selection
+                                    biz_names = list(biz_opts.keys()) if 'biz_opts' in locals() else [r['nombreNegocio']]
+                                    biz_selected_index = biz_names.index(r['nombreNegocio']) if r['nombreNegocio'] in biz_names else 0
+                                    edit_t_biz = st.selectbox("Negocio:", biz_names, index=biz_selected_index)
+                                    
+                                    # Status select
+                                    status_names = ["ACTIVE", "PAUSED", "COMPLETED"]
+                                    status_disp_names = ["🟢 Activa (ACTIVE)", "🟡 Pausada (PAUSED)", "🔴 Finalizada (COMPLETED)"]
+                                    edit_t_state = st.selectbox("Estado de la Tarea:", status_disp_names, index=status_names.index(r['estado']))
+                                    
+                                    # Expiry parse
+                                    try:
+                                        curr_expiry_dt = datetime.strptime(r['fechaVencimiento'], "%Y-%m-%d %H:%M:%S")
+                                    except Exception:
+                                        curr_expiry_dt = datetime.now() + timedelta(days=30)
+                                        
+                                    col_ed1, col_ed2 = st.columns(2)
+                                    with col_ed1:
+                                        edit_t_date = st.date_input("Fecha Vencimiento:", value=curr_expiry_dt.date(), key=f"edit_t_date_val_{r['id']}")
+                                    with col_ed2:
+                                        edit_t_time = st.time_input("Hora Vencimiento:", value=curr_expiry_dt.time(), key=f"edit_t_time_val_{r['id']}")
+                                        
+                                    col_eb1, col_eb2 = st.columns(2)
+                                    with col_eb1:
+                                        submit_edit_t = st.form_submit_button("💾 Guardar Cambios")
+                                        if submit_edit_t:
+                                            final_edit_dt_str = f"{edit_t_date} {edit_t_time.strftime('%H:%M:%S')}"
+                                            selected_biz_id = biz_opts[edit_t_biz] if 'biz_opts' in locals() else r['negocioId']
+                                            selected_state_val = status_names[status_disp_names.index(edit_t_state)]
+                                            
+                                            success, msg = update_chamba_task(r['id'], edit_t_title, edit_t_inst, edit_t_link, edit_t_type, edit_t_reward, edit_t_cost, edit_t_spots, final_edit_dt_str, selected_biz_id, selected_state_val)
+                                            if success:
+                                                st.success("Tarea actualizada con éxito!")
+                                                st.rerun()
+                                            else:
+                                                st.error(msg)
+                                    with col_eb2:
+                                        submit_del_t = st.form_submit_button("🗑️ Eliminar Tarea")
+                                        if submit_del_t:
+                                            success, msg = delete_chamba_task(r['id'])
+                                            if success:
+                                                st.warning(msg)
+                                                st.rerun()
+                                            else:
+                                                st.error(msg)
+                                                
+            # Sub-tab 3: Dashboard Financiero
+            with tab_cha_financials:
+                st.subheader("📊 Métricas Económicas de Chamba SD")
+                
+                # Fetch statistics
+                summary = get_chamba_financials_summary()
+                token_price_cop_local = token_price_cop # Rate
+                
+                paid_cop_equiv = summary["total_paid_sd"] * token_price_cop_local
+                net_profit_cop = summary["total_billed_cop"] - paid_cop_equiv
+                
+                col_mc1, col_mc2, col_mc3, col_mc4 = st.columns(4)
+                with col_mc1:
+                    st.markdown(f"""
+                    <div class="card" style="border-left: 5px solid #3b82f6;">
+                        <div class="metric-title">Facturado a Negocios</div>
+                        <div class="metric-value" style="color: #3b82f6;">${format_num(summary["total_billed_cop"])} COP</div>
+                        <div class="metric-sub">Total cobrado en pesos colombianos</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                with col_mc2:
+                    st.markdown(f"""
+                    <div class="card" style="border-left: 5px solid #ffd700;">
+                        <div class="metric-title">Recompensas Pagadas (SD)</div>
+                        <div class="metric-value" style="color: #ffd700;">{format_num(summary["total_paid_sd"])} SD</div>
+                        <div class="metric-sub">Total pagado a usuarios en tokens</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                with col_mc3:
+                    st.markdown(f"""
+                    <div class="card" style="border-left: 5px solid #ef4444;">
+                        <div class="metric-title">Equivalente Pagado (COP)</div>
+                        <div class="metric-value" style="color: #ef4444;">${format_num(paid_cop_equiv)} COP</div>
+                        <div class="metric-sub">Costo de los tokens en COP</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                with col_mc4:
+                    st.markdown(f"""
+                    <div class="card" style="border-left: 5px solid #10b981;">
+                        <div class="metric-title">Ganancia Neta Plataforma</div>
+                        <div class="metric-value" style="color: #10b981;">${format_num(net_profit_cop)} COP</div>
+                        <div class="metric-sub">Diferencia (Facturado - Pagado)</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    
+                st.markdown("---")
+                
+                # Show list of reviewed tasks (Audit trail)
+                st.write("<b>📋 Auditoría Histórica de Tareas Revisadas:</b>", unsafe_allow_html=True)
+                conn_aud = get_db_connection()
+                audit_df = pd.read_sql_query("""
+                    SELECT tc.id, tc.fechaEnvio, u.fullname, t.titulo, t.recompensaSD, tc.estado, tc.motivo_rechazo
+                    FROM tareas_completadas tc
+                    JOIN tareas t ON tc.tareaId = t.id
+                    JOIN users u ON tc.userId = u.wallet_code
+                    WHERE tc.estado IN ('APPROVED', 'REJECTED')
+                    ORDER BY tc.fechaEnvio DESC LIMIT 50
+                """, conn_aud)
+                conn_aud.close()
+                
+                if len(audit_df) == 0:
+                    st.info("No hay registros de tareas completadas o rechazadas en el historial.")
+                else:
+                    audit_df_display = audit_df.copy()
+                    audit_df_display['Recompensa'] = audit_df_display['recompensaSD'].apply(lambda x: f"+{format_num(x)} SD")
+                    audit_df_display['Estado'] = audit_df_display['estado'].apply(
+                        lambda s: "🟢 Aprobada / Pagada" if s == 'APPROVED' else f"🔴 Rechazada (Trampa)"
+                    )
+                    audit_df_display['Detalle'] = audit_df_display.apply(
+                        lambda r: "Validada correctamente" if r['estado'] == 'APPROVED' else f"Motivo: {r['motivo_rechazo']}", axis=1
+                    )
+                    audit_df_display = audit_df_display[['fechaEnvio', 'fullname', 'titulo', 'Recompensa', 'Estado', 'Detalle']]
+                    audit_df_display.columns = ['Fecha', 'Usuario', 'Tarea de Micro-Trabajo', 'SD Pagados', 'Estado de la Prueba', 'Detalle/Motivo']
+                    st.dataframe(audit_df_display, use_container_width=True)
+
+            # Sub-tab 4: Gestión de Clientes
+            with tab_cha_clients:
+                st.subheader("👥 Gestión de Negocios y Clientes Patrocinadores")
+                st.write("Registra los negocios locales de tu ciudad que pagan por conseguir tráfico, visualizaciones, seguidores o comentarios.")
+                
+                col_cl_l, col_cl_r = st.columns([1, 1])
+                
+                with col_cl_l:
+                    st.write("<b>➕ Registrar Nuevo Cliente / Negocio:</b>", unsafe_allow_html=True)
+                    with st.form("admin_create_biz_form"):
+                        b_name_inp = st.text_input("Nombre Comercial del Negocio:", placeholder="Ej. Pizzería Ibagué")
+                        b_contact_inp = st.text_input("Contacto del Negocio (Móvil/Correo):", placeholder="Ej. Juan 3151234567")
+                        b_invest_inp = st.number_input("Inversión / Presupuesto Inicial Recaudado (COP):", min_value=0.0, value=50000.0, step=10000.0)
+                        submit_new_biz = st.form_submit_button("👥 Registrar Cliente")
+                        
+                        if submit_new_biz:
+                            success, msg = create_negocio_chamba(b_name_inp, b_contact_inp, b_invest_inp)
+                            if success:
+                                st.success(msg)
+                                st.rerun()
+                            else:
+                                st.error(msg)
+                with col_cl_r:
+                    st.write("<b>📋 Directorio de Clientes y Presupuestos:</b>", unsafe_allow_html=True)
+                    clients_df = get_all_negocios_chamba()
+                    if len(clients_df) == 0:
+                        st.info("No hay negocios registrados todavía.")
+                    else:
+                        clients_df_display = clients_df.copy()
+                        clients_df_display['Presupuesto Invertido (COP)'] = clients_df_display['totalInvertidoCOP'].apply(lambda x: f"${format_num(x)} COP")
+                        clients_df_display = clients_df_display[['nombreNegocio', 'contacto', 'Presupuesto Invertido (COP)']]
+                        clients_df_display.columns = ['Nombre Comercial', 'Contacto/Móvil', 'Inversión Total Recaudada']
+                        st.dataframe(clients_df_display, use_container_width=True)
 
         with tab_settings_token:
             st.subheader("⚙️ Parámetros Cripto y Cuenta Madre")
