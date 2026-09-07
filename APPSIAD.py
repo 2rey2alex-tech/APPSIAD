@@ -2511,13 +2511,22 @@ def submit_invoice_claim(user_code, num_factura, cufe, fecha_factura, total_fact
         conn.close()
         return False, "⚠️ **Factura Repetida:** Esta factura ya fue minada por otro humano."
         
-    # Define rewards
-    base_reward = 500.0 # 1X payout
+    # Calculate token price in COP
+    token_settings = get_token_settings()
+    token_price_usd = token_settings['price_usd']
+    usd_cop_rate = fetch_usd_cop_rate()
+    token_price_cop = token_price_usd * usd_cop_rate
+    if token_price_cop <= 0:
+        token_price_cop = 2075.0  # Fallback
+
+    # Calculate percentage-based reward (0.3% base, 0.6% with Human Bono 2X)
     if es_humano == 1:
-        monto_pago_sd = base_reward * 2 # 2X payout (1000 SD)
+        reward_cop = float(total_factura) * 0.006
+        monto_pago_sd = reward_cop / token_price_cop
         bono_aplicado = 1
     else:
-        monto_pago_sd = base_reward
+        reward_cop = float(total_factura) * 0.003
+        monto_pago_sd = reward_cop / token_price_cop
         bono_aplicado = 0
         
     try:
@@ -4882,7 +4891,7 @@ st.markdown(f"""
 
 if not st.session_state.logged_in:
     st.sidebar.title("🔐 Alianza CryptoWallet")
-    st.sidebar.markdown("<div style='background-color: #1e293b; padding: 6px 12px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 15px; text-align: center;'><span style='color: #ffd700; font-size: 0.85rem; font-weight: bold;'>🚀 Versión de la App: v76</span></div>", unsafe_allow_html=True)
+    st.sidebar.markdown("<div style='background-color: #1e293b; padding: 6px 12px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 15px; text-align: center;'><span style='color: #ffd700; font-size: 0.85rem; font-weight: bold;'>🚀 Versión de la App: v77</span></div>", unsafe_allow_html=True)
     menu = st.sidebar.selectbox("Seleccione una opción", ["Iniciar Sesión", "Registrarse"])
     
     if menu == "Iniciar Sesión":
@@ -4950,7 +4959,7 @@ if not st.session_state.logged_in:
 else:
     # Sidebar de usuario conectado con toques dorados
     st.sidebar.markdown(f"<h2 class='golden-title'>👋 {st.session_state.fullname}</h2>", unsafe_allow_html=True)
-    st.sidebar.markdown("<div style='background-color: #1e293b; padding: 6px 12px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 15px; text-align: center;'><span style='color: #ffd700; font-size: 0.85rem; font-weight: bold;'>🚀 Versión de la App: v76</span></div>", unsafe_allow_html=True)
+    st.sidebar.markdown("<div style='background-color: #1e293b; padding: 6px 12px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 15px; text-align: center;'><span style='color: #ffd700; font-size: 0.85rem; font-weight: bold;'>🚀 Versión de la App: v77</span></div>", unsafe_allow_html=True)
     st.sidebar.markdown(f"**Billetera ID (Código):** `{st.session_state.wallet_code}`")
     
     # Obtener el número de notificaciones pendientes
@@ -5047,7 +5056,7 @@ else:
                         <h4 style="color: #ffd700; margin-top: 0; font-weight: bold;">🎁 Beneficios Exclusivos al Verificarte:</h4>
                         <ul style="color: #ffffff; font-size: 0.95rem; line-height: 1.5rem; padding-left: 20px; margin: 0;">
                             <li>💰 <b>Recompensa Instantánea:</b> ¡Obtén <b>5,000 SD gratis</b> de inmediato en tu billetera!</li>
-                            <li>🧾 <b>Bono Doble (2X):</b> ¡Tus ganancias por facturas minadas se multiplican de <b>500 SD a 1,000 SD</b>!</li>
+                            <li>🧾 <b>Bono Doble (2X):</b> ¡Tus ganancias por facturas minadas se duplican, pasando de un <b>0.3% a un 0.6%</b> del valor total de la factura!</li>
                             <li>🔒 <b>Seguridad de Red:</b> Mantén a salvo tu saldo y tus retiros de forma confiable.</li>
                         </ul>
                     </div>
@@ -5264,7 +5273,7 @@ else:
                     <div style="background-color: #0d0d11; border: 1.5px solid #10b981; border-radius: 12px; padding: 12px 20px; display: flex; align-items: center; justify-content: space-between; margin-bottom: 15px; box-shadow: 0 4px 15px rgba(16, 185, 129, 0.15);">
                         <div>
                             <span style="color:#10b981; font-weight:bold; font-size:1.15rem;">🔥 ¡BONO HUMANO REAL ACTIVADO X2!</span>
-                            <span style="color:#a1a1aa; font-size:0.85rem; display:block; margin-top:2px;">Se te pagará el doble (<b>1,000 SD</b>) por cada factura minada aprobada hoy.</span>
+                            <span style="color:#a1a1aa; font-size:0.85rem; display:block; margin-top:2px;">Se te pagará el doble (<b>0.6% de su valor total</b>) por cada factura minada aprobada hoy.</span>
                         </div>
                         <div style="text-align:right;">
                             <span style="background-color:#10b98122; color:#10b981; font-weight:900; font-size:0.85rem; padding: 4px 10px; border-radius:15px; border:1px solid #10b98144;">🟢 PULSO ACTIVO</span>
@@ -5276,7 +5285,7 @@ else:
                     <div style="background-color: #1a1500; border: 1.5px solid #ffd700; border-radius: 12px; padding: 12px 20px; display: flex; align-items: center; justify-content: space-between; margin-bottom: 15px; box-shadow: 0 4px 15px rgba(255, 215, 0, 0.15);">
                         <div>
                             <span style="color:#ffd700; font-weight:bold; font-size:1.0rem;">⚠️ Minería Estándar Activa (1X)</span>
-                            <span style="color:#e2e8f0; font-size:0.82rem; display:block; margin-top:2px;">Se te pagará tarifa regular (<b>500 SD</b>) por factura. ¡Verifícate para duplicarlo!</span>
+                            <span style="color:#e2e8f0; font-size:0.82rem; display:block; margin-top:2px;">Se te pagará la tarifa regular (<b>0.3% de su valor total</b>) por cada factura. ¡Verifícate para duplicarlo!</span>
                         </div>
                     </div>
                     """, unsafe_allow_html=True)
@@ -5314,8 +5323,8 @@ else:
                 <ul style="padding-left:18px; font-size:0.85rem; color:#e2e8f0; line-height:1.4rem;">
                     <li><b>Comprobante Único:</b> No puedes subir una factura que ya fue minada por otro usuario. El sistema valida las facturas duplicadas.</li>
                     <li><b>Veracidad:</b> El administrador revisará minuciosamente los detalles antes de aprobar los fondos. El envío de comprobantes falsos de forma recurrente resultará en bloqueo definitivo de cuenta.</li>
-                    <li><b>Tarifa estándar:</b> 500 SD por factura para cuentas normales.</li>
-                    <li><b>Tarifa Bono Humano:</b> 1,000 SD por factura para humanos validados con pulso activo diario.</li>
+                    <li><b>Tarifa estándar:</b> 0.3% del valor total de la factura para cuentas normales.</li>
+                    <li><b>Tarifa Bono Humano:</b> 0.6% del valor total de la factura para humanos validados con pulso activo diario.</li>
                 </ul>
             </div>
             """, unsafe_allow_html=True)
