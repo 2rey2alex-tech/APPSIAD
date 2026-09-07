@@ -3410,6 +3410,25 @@ def get_custom_token_historical_data(current_price):
 
 # --- LÓGICA DE NEGOCIO ---
 
+
+def has_completed_purchase(user_code):
+    if user_code == '99999' or user_code == 'admin':
+        return True
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT 1 FROM purchase_requests WHERE user_code = ? AND status = 'APPROVED'", (user_code,))
+        p_req = cursor.fetchone()
+        if p_req:
+            return True
+        cursor.execute("SELECT 1 FROM compras_bills_sd WHERE userId = ? AND estado = 'APROBADA'", (user_code,))
+        b_req = cursor.fetchone()
+        return b_req is not None
+    except Exception:
+        return False
+    finally:
+        conn.close()
+
 def register_user(username, password, fullname, email, referred_by=None):
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -3425,6 +3444,17 @@ def register_user(username, password, fullname, email, referred_by=None):
         if not cursor.fetchone():
             conn.close()
             return False, f"El código de referido {referred_by} no corresponde a ningún usuario registrado."
+            
+        # NUEVA REGLA: El referidor debe haber realizado y completado al menos una compra de tokens SD
+        if referred_by != '99999': # Except admin
+            cursor.execute("SELECT 1 FROM purchase_requests WHERE user_code = ? AND status = 'APPROVED'", (referred_by,))
+            p_req = cursor.fetchone()
+            if not p_req:
+                cursor.execute("SELECT 1 FROM compras_bills_sd WHERE userId = ? AND estado = 'APROBADA'", (referred_by,))
+                b_req = cursor.fetchone()
+                if not b_req:
+                    conn.close()
+                    return False, f"⚠️ El código {referred_by} no puede referir aún. El propietario de este código debe haber comprado y confirmado tokens SD en la pestaña 'Comprar SD' para activar su derecho de referidos."
             
     try:
         cursor.execute("""
@@ -5463,7 +5493,7 @@ st.markdown(f"""
 
 if not st.session_state.logged_in:
     st.sidebar.title("🔐 Alianza CryptoWallet")
-    st.sidebar.markdown("<div style='background-color: #1e293b; padding: 6px 12px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 15px; text-align: center;'><span style='color: #ffd700; font-size: 0.85rem; font-weight: bold;'>🚀 Versión de la App: v79</span></div>", unsafe_allow_html=True)
+    st.sidebar.markdown("<div style='background-color: #1e293b; padding: 6px 12px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 15px; text-align: center;'><span style='color: #ffd700; font-size: 0.85rem; font-weight: bold;'>🚀 Versión de la App: v80</span></div>", unsafe_allow_html=True)
     menu = st.sidebar.selectbox("Seleccione una opción", ["Iniciar Sesión", "Registrarse"])
     
     if menu == "Iniciar Sesión":
@@ -5531,7 +5561,7 @@ if not st.session_state.logged_in:
 else:
     # Sidebar de usuario conectado con toques dorados
     st.sidebar.markdown(f"<h2 class='golden-title'>👋 {st.session_state.fullname}</h2>", unsafe_allow_html=True)
-    st.sidebar.markdown("<div style='background-color: #1e293b; padding: 6px 12px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 15px; text-align: center;'><span style='color: #ffd700; font-size: 0.85rem; font-weight: bold;'>🚀 Versión de la App: v79</span></div>", unsafe_allow_html=True)
+    st.sidebar.markdown("<div style='background-color: #1e293b; padding: 6px 12px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 15px; text-align: center;'><span style='color: #ffd700; font-size: 0.85rem; font-weight: bold;'>🚀 Versión de la App: v80</span></div>", unsafe_allow_html=True)
     st.sidebar.markdown(f"**Billetera ID (Código):** `{st.session_state.wallet_code}`")
     
     # Obtener el número de notificaciones pendientes
@@ -9086,9 +9116,30 @@ else:
 
 
     elif choice == "👥 Mis Referidos":
-
-        st.markdown("<h1 class='golden-title'>👥 Mi Red de Referidos</h1>", unsafe_allow_html=True)
-        st.write("Gestiona tu red de invitados de Alianza, visualiza tu árbol genealógico completo y monitorea tus ganancias generadas.")
+        is_owner_or_admin = (st.session_state.username == 'admin' or st.session_state.wallet_code == '99999')
+        if not is_owner_or_admin and not has_completed_purchase(st.session_state.wallet_code):
+            st.markdown("<h1 class='golden-title'>👥 Mi Red de Referidos</h1>", unsafe_allow_html=True)
+            st.markdown(f"""
+            <div class="card" style="border-left: 5px solid #ef4444; background: linear-gradient(135deg, #0d0d11 0%, #200404 100%) !important; padding: 25px; text-align: center; box-shadow: 0 4px 15px rgba(239, 68, 68, 0.15);">
+                <div style="font-size: 3.5rem; margin-bottom: 15px;">🔒🔐</div>
+                <h3 style="color: #ef4444; margin-top: 0; font-weight: 800; text-transform: uppercase;">⚠️ SECCIÓN BLOQUEADA: COMPRA REQUERIDA</h3>
+                <p style="font-size: 1.05rem; line-height: 1.6rem; color: #ffffff; margin: 15px auto; max-width: 80%;">
+                    Para poder referir a otros usuarios y desbloquear tu código de invitación, <b>debes haber comprado tokens SD</b> previamente en la pestaña <b>📥 Comprar SD</b> de tu aplicación y que el administrador la haya confirmado.
+                </p>
+                <div style="background-color: #00000044; padding: 15px; border-radius: 8px; text-align: left; max-width: 60%; margin: 20px auto; border: 1px dashed rgba(255,215,0,0.3);">
+                    <h5 style="color: #ffd700; margin-top: 0; font-weight: bold; text-align: center;">💡 ¿Por qué este requisito?</h5>
+                    <p style="color: #a1a1aa; font-size: 0.88rem; line-height: 1.4rem; margin: 0; text-align: center;">
+                        Esta política anti-fraude protege el ecosistema, garantiza que todos los referidores sean usuarios reales y evita la creación masiva de cuentas fantasma de spam.
+                    </p>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+            if st.button("📥 IR A COMPRAR SD AHORA", use_container_width=True, key="go_to_buy_sd_from_ref_btn"):
+                st.session_state.comprar_sd_mode = "COP"
+                st.info("Utiliza la barra lateral e ingresa al menú '📥 Comprar SD'")
+        else:
+            st.markdown("<h1 class='golden-title'>👥 Mi Red de Referidos</h1>", unsafe_allow_html=True)
+            st.write("Gestiona tu red de invitados de Alianza, visualiza tu árbol genealógico completo y monitorea tus ganancias generadas.")
         
         # Tarjeta de invitación principal
         st.markdown(f"""
