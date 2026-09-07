@@ -30,7 +30,7 @@ def clean_html(html_str):
 
 # Configuración de página de Streamlit
 st.set_page_config(
-    page_title="Alianza CryptoWallet v64",
+    page_title="Alianza CryptoWallet v70",
     page_icon="💼",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -107,6 +107,22 @@ def init_db():
             proof_image BLOB,
             status TEXT DEFAULT 'PENDING',
             timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    
+    # Tabla de compras con BILLS (compras_bills_sd)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS compras_bills_sd (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            userId TEXT,
+            walletOrigen TEXT,
+            cantidadEnviada REAL,
+            cantidadVerificada REAL DEFAULT 0.0,
+            comprobanteUrl BLOB,
+            hash TEXT,
+            cantidadSDEnviada REAL DEFAULT 0.0,
+            estado TEXT DEFAULT 'PENDIENTE',
+            fecha DATETIME DEFAULT CURRENT_TIMESTAMP
         )
     """)
     # Tabla de comisiones por referidos
@@ -1110,6 +1126,110 @@ def approve_purchase_as_vip(request_id):
         return success, msg
     conn.close()
     return False, "No se encontró la solicitud de compra."
+
+# Gestión de solicitudes de compra con BILLS
+def submit_bills_purchase_request(user_code, wallet_origen, cantidad_enviada, comprobante_bytes, tx_hash):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO compras_bills_sd (userId, walletOrigen, cantidadEnviada, cantidadVerificada, comprobanteUrl, hash, cantidadSDEnviada, estado)
+        VALUES (?, ?, ?, 0.0, ?, ?, 0.0, 'PENDIENTE')
+    """, (user_code, wallet_origen, cantidad_enviada, comprobante_bytes, tx_hash))
+    conn.commit()
+    conn.close()
+
+def get_pending_bills_purchases():
+    conn = get_db_connection()
+    df = pd.read_sql_query("""
+        SELECT b.id, b.userId as user_code, b.walletOrigen, b.cantidadEnviada, b.cantidadVerificada, b.comprobanteUrl, b.hash, b.cantidadSDEnviada, b.fecha as timestamp, u.fullname, u.username
+        FROM compras_bills_sd b
+        JOIN users u ON b.userId = u.wallet_code
+        WHERE b.estado = 'PENDIENTE'
+        ORDER BY b.fecha ASC
+    """, conn)
+    conn.close()
+    return df
+
+def get_user_bills_purchases(user_code):
+    conn = get_db_connection()
+    df = pd.read_sql_query("""
+        SELECT id, walletOrigen, cantidadEnviada, cantidadVerificada, hash, cantidadSDEnviada, estado, fecha as Fecha
+        FROM compras_bills_sd
+        WHERE userId = ?
+        ORDER BY fecha DESC
+    """, conn, params=(user_code,))
+    conn.close()
+    return df
+
+def get_pending_bills_count():
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT COUNT(*) FROM compras_bills_sd WHERE estado = 'PENDIENTE'")
+        count = cursor.fetchone()[0]
+    except Exception:
+        count = 0
+    conn.close()
+    return count
+
+def approve_bills_purchase(request_id, cantidad_verificada, cantidad_sd):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT b.userId, b.cantidadEnviada, u.fullname, u.referred_by 
+        FROM compras_bills_sd b 
+        JOIN users u ON b.userId = u.wallet_code 
+        WHERE b.id = ? AND b.estado = 'PENDIENTE'
+    """, (request_id,))
+    req = cursor.fetchone()
+    if req:
+        user_code, cantidad_enviada, fullname, referred_by = req
+        # Actualizar estado de la solicitud
+        cursor.execute("""
+            UPDATE compras_bills_sd 
+            SET estado = 'APROBADA', cantidadVerificada = ?, cantidadSDEnviada = ? 
+            WHERE id = ?
+        """, (cantidad_verificada, cantidad_sd, request_id))
+        conn.commit()
+        conn.close()
+        
+        # Enviar los tokens desde la billetera maestra (99999) al comprador
+        success, msg = send_points("99999", user_code, cantidad_sd)
+        if success:
+            # Enviar notificación oficial de aprobación al comprador
+            add_notification(
+                user_code, 
+                f"🟢 <b>¡Compra con BILLS aprobada con éxito!</b> El administrador validó tu envío de <b>{format_num(cantidad_verificada)} BILLS</b>. "
+                f"Se han acreditado <b>{format_num(cantidad_sd)} SD</b> directamente a tu billetera."
+            )
+        return success, msg
+    conn.close()
+    return False, "No se encontró la solicitud de compra."
+
+def reject_bills_purchase(request_id):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT userId, cantidadEnviada 
+        FROM compras_bills_sd 
+        WHERE id = ? AND estado = 'PENDIENTE'
+    """, (request_id,))
+    req = cursor.fetchone()
+    if req:
+        user_code, cantidad_enviada = req
+        cursor.execute("UPDATE compras_bills_sd SET estado = 'RECHAZADA' WHERE id = ?", (request_id,))
+        conn.commit()
+        conn.close()
+        
+        # Enviar notificación oficial de rechazo
+        add_notification(
+            user_code, 
+            f"🔴 <b>Compra con BILLS rechazada.</b> Tu solicitud por <b>{format_num(cantidad_enviada)} BILLS</b> fue rechazada "
+            f"debido a inconsistencias. Verifica la transacción e intenta nuevamente o ponte en contacto con soporte."
+        )
+        return True
+    conn.close()
+    return False
 
 # --- LLAMADOS A API Y CACHÉ ---
 
@@ -3323,7 +3443,7 @@ st.markdown(f"""
 
 if not st.session_state.logged_in:
     st.sidebar.title("🔐 Alianza CryptoWallet")
-    st.sidebar.markdown("<div style='background-color: #1e293b; padding: 6px 12px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 15px; text-align: center;'><span style='color: #ffd700; font-size: 0.85rem; font-weight: bold;'>🚀 Versión de la App: v68</span></div>", unsafe_allow_html=True)
+    st.sidebar.markdown("<div style='background-color: #1e293b; padding: 6px 12px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 15px; text-align: center;'><span style='color: #ffd700; font-size: 0.85rem; font-weight: bold;'>🚀 Versión de la App: v70</span></div>", unsafe_allow_html=True)
     menu = st.sidebar.selectbox("Seleccione una opción", ["Iniciar Sesión", "Registrarse"])
     
     if menu == "Iniciar Sesión":
@@ -3391,7 +3511,7 @@ if not st.session_state.logged_in:
 else:
     # Sidebar de usuario conectado con toques dorados
     st.sidebar.markdown(f"<h2 class='golden-title'>👋 {st.session_state.fullname}</h2>", unsafe_allow_html=True)
-    st.sidebar.markdown("<div style='background-color: #1e293b; padding: 6px 12px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 15px; text-align: center;'><span style='color: #ffd700; font-size: 0.85rem; font-weight: bold;'>🚀 Versión de la App: v68</span></div>", unsafe_allow_html=True)
+    st.sidebar.markdown("<div style='background-color: #1e293b; padding: 6px 12px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 15px; text-align: center;'><span style='color: #ffd700; font-size: 0.85rem; font-weight: bold;'>🚀 Versión de la App: v70</span></div>", unsafe_allow_html=True)
     st.sidebar.markdown(f"**Billetera ID (Código):** `{st.session_state.wallet_code}`")
     
     # Obtener el número de notificaciones pendientes
@@ -3692,9 +3812,10 @@ else:
         # Sección de Historiales de Operación Completo (Multitabs)
         st.subheader("📑 Historial Completo de Operaciones")
         
-        tab_txs, tab_buys, tab_withdraws_user, tab_store_user = st.tabs([
+        tab_txs, tab_buys, tab_buys_bills, tab_withdraws_user, tab_store_user = st.tabs([
             "💸 Envíos y Recibos",
             "📥 Compras de SD (Nequi)",
+            "🪙 Compras con BILLS",
             "💰 Retiros a Nequi",
             "🛍️ Compras en Tienda"
         ])
@@ -3744,6 +3865,26 @@ else:
                             except Exception:
                                 st.write("No se pudo cargar la imagen.")
                                 
+        with tab_buys_bills:
+            user_bills_df = get_user_bills_purchases(st.session_state.wallet_code)
+            if len(user_bills_df) == 0:
+                st.info("Aún no tienes solicitudes de compra con BILLS.")
+            else:
+                for idx, r in user_bills_df.iterrows():
+                    status_lbl_b = "🟡 Pendiente" if r['estado'] == 'PENDIENTE' else ("🟢 Aprobada" if r['estado'] == 'APROBADA' else "🔴 Rechazada")
+                    status_color_b = "#ffd700" if r['estado'] == 'PENDIENTE' else ("#10b981" if r['estado'] == 'APROBADA' else "#ef4444")
+                    with st.expander(f"🪙 Recarga #{r['id']} - {r['Fecha']} - {status_lbl_b} ({r['cantidadEnviada']} BILLS)"):
+                        st.markdown(f"""
+                        <div class="card" style="border-left: 3px solid {status_color_b};">
+                            <p><b>Wallet de Origen BILLS:</b> <code>{r['walletOrigen']}</code></p>
+                            <p><b>Cantidad BILLS Enviada:</b> {r['cantidadEnviada']}</p>
+                            <p><b>Hash de Transacción:</b> <code>{r['hash'] if r['hash'] else 'No proporcionado'}</code></p>
+                            <p><b>Cantidad BILLS Verificada por Admin:</b> {r['cantidadVerificada']} BILLS</p>
+                            <p><b>Tokens SD Recibidos:</b> <span style="color:#10b981; font-weight:bold;">{format_num(r['cantidadSDEnviada'])} SD</span></p>
+                            <p><b>Estado:</b> <span style="color:{status_color_b}; font-weight:bold;">{status_lbl_b}</span></p>
+                        </div>
+                        """, unsafe_allow_html=True)
+                        
         with tab_withdraws_user:
             df_w_hist = get_user_withdrawals(st.session_state.wallet_code)
             if len(df_w_hist) == 0:
@@ -4172,66 +4313,130 @@ else:
     # --- COMPRAR SD (PROOF OF PAYMENT & NEQUI) ---
     elif choice == "📥 Comprar SD":
         st.markdown(f"<h1 class='golden-title'>📥 Adquirir Tokens {token['symbol']}</h1>", unsafe_allow_html=True)
-        st.write("Sigue los pasos detallados a continuación para recargar saldo de forma directa y oficial.")
+        st.write("Selecciona tu método de pago preferido para recargar saldo de forma directa y oficial.")
         
-        col_calc, col_nequi = st.columns([3, 2])
-        
-        with col_nequi:
-            st.markdown(f"""
-            <div class="card" style="border-left: 5px solid #ffd700;">
-                <h4 style="margin-top:0; color: #ffd700; display: flex; align-items: center; gap: 8px;">📲 Paso 1: Transfiere por NEQUI</h4>\n                <p style="font-size: 0.9rem; color: #e2e8f0; line-height: 1.4rem;">
-                    Realiza tu pago desde la app Nequi al número oficial del administrador.
-                    <b>Toca el número abajo para seleccionarlo y copiarlo de inmediato:</b>
-                </p>
-            </div>
-            """, unsafe_allow_html=True)
-            st.code(token['nequi_number'], language="text")
+        # Selector de método de pago con botones
+        if "comprar_sd_mode" not in st.session_state:
+            st.session_state.comprar_sd_mode = "COP"
             
-            st.markdown(f"""
-            <div class="card" style="border-top: 2px solid #10b981;">
-                <h5 style="color: #ffd700; margin-top:0;">📋 Requisitos para el Proceso</h5>\n                <ul style="padding-left: 18px; font-size: 0.85rem; color: #a1a1aa; line-height: 1.3rem;">
-                    <li>Conserva una captura de pantalla clara de tu comprobante con hora e ID de transacción.</li>\n                    <li>El sistema autodetectará tu dirección de billetera (ID): <code style="color: #10b981;">{st.session_state.wallet_code}</code>.</li>\n                    <li>Una vez verificado, tu saldo se actualizará automáticamente.</li>\n                </ul>
-            </div>
-            """, unsafe_allow_html=True)
-            
-        with col_calc:
-            st.subheader("Paso 2: Cotiza tu compra")
-            amount_cop_input = st.number_input("Ingresa la cantidad en Pesos Colombianos (COP) que vas a transferir:", min_value=1000, value=20000, step=5000)
-            
-            sd_to_receive = amount_cop_input / token_price_cop
-            
-            col_c1, col_c2 = st.columns(2)
-            with col_c1:
-                st.markdown(f"""
-                <div class="card" style="border-color: #ffd700;">
-                    <div class="metric-title">Monto a pagar (COP)</div>
-                    <div class="metric-value" style="color: #ffd700;">${amount_cop_input:,.0f} COP</div>
-                </div>
-                """, unsafe_allow_html=True)
-            with col_c2:
-                st.markdown(f"""
-                <div class="card" style="border-color: #10b981;">
-                    <div class="metric-title">Tokens a recibir ({token['symbol']})</div>
-                    <div class="metric-value" style="color: #10b981;">{sd_to_receive:,.4f} SD</div>
-                    <div class="metric-sub">Tasa: 1 SD = ${token_price_cop:,.2f} COP</div>
-                </div>
-                """, unsafe_allow_html=True)
+        col_m_btn1, col_m_btn2 = st.columns(2)
+        with col_m_btn1:
+            if st.button("💵 Pagar en COP (Nequi)", use_container_width=True):
+                st.session_state.comprar_sd_mode = "COP"
+                st.rerun()
+        with col_m_btn2:
+            if st.button("🪙 Pagar con BILLS", use_container_width=True):
+                st.session_state.comprar_sd_mode = "BILLS"
+                st.rerun()
                 
-            st.subheader("Paso 3: Sube tu Comprobante de Pago")
-            uploaded_file = st.file_uploader("Adjunta la imagen/foto de tu transferencia Nequi:", type=["png", "jpg", "jpeg"])
-            
-            if st.button("Enviar Solicitud de Compra"):
-                if not uploaded_file:
-                    st.error("⚠️ Debes adjuntar la imagen del comprobante para que el administrador pueda procesar tu compra.")
-                else:
-                    try:
-                        img_bytes = uploaded_file.read()
-                        submit_purchase_request(st.session_state.wallet_code, amount_cop_input, sd_to_receive, img_bytes)
-                        st.balloons()
-                        st.success("🎉 ¡Tu comprobante ha sido enviado con éxito al administrador! Tu compra de " + f"{sd_to_receive:,.4f} SD" + " está siendo procesada.")
-                    except Exception as e:
-                        st.error(f"Error procesando la solicitud: {str(e)}")
+        if st.session_state.comprar_sd_mode == "COP":
+            col_calc, col_nequi = st.columns([3, 2])
 
+            with col_nequi:
+                st.markdown(f"""
+                <div class="card" style="border-left: 5px solid #ffd700;">
+                    <h4 style="margin-top:0; color: #ffd700; display: flex; align-items: center; gap: 8px;">📲 Paso 1: Transfiere por NEQUI</h4>\n                <p style="font-size: 0.9rem; color: #e2e8f0; line-height: 1.4rem;">
+                        Realiza tu pago desde la app Nequi al número oficial del administrador.
+                        <b>Toca el número abajo para seleccionarlo y copiarlo de inmediato:</b>
+                    </p>
+                </div>
+                """, unsafe_allow_html=True)
+                st.code(token['nequi_number'], language="text")
+
+                st.markdown(f"""
+                <div class="card" style="border-top: 2px solid #10b981;">
+                    <h5 style="color: #ffd700; margin-top:0;">📋 Requisitos para el Proceso</h5>\n                <ul style="padding-left: 18px; font-size: 0.85rem; color: #a1a1aa; line-height: 1.3rem;">
+                        <li>Conserva una captura de pantalla clara de tu comprobante con hora e ID de transacción.</li>\n                    <li>El sistema autodetectará tu dirección de billetera (ID): <code style="color: #10b981;">{st.session_state.wallet_code}</code>.</li>\n                    <li>Una vez verificado, tu saldo se actualizará automáticamente.</li>\n                </ul>
+                </div>
+                """, unsafe_allow_html=True)
+
+            with col_calc:
+                st.subheader("Paso 2: Cotiza tu compra")
+                amount_cop_input = st.number_input("Ingresa la cantidad en Pesos Colombianos (COP) que vas a transferir:", min_value=1000, value=20000, step=5000)
+
+                sd_to_receive = amount_cop_input / token_price_cop
+
+                col_c1, col_c2 = st.columns(2)
+                with col_c1:
+                    st.markdown(f"""
+                    <div class="card" style="border-color: #ffd700;">
+                        <div class="metric-title">Monto a pagar (COP)</div>
+                        <div class="metric-value" style="color: #ffd700;">${amount_cop_input:,.0f} COP</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                with col_c2:
+                    st.markdown(f"""
+                    <div class="card" style="border-color: #10b981;">
+                        <div class="metric-title">Tokens a recibir ({token['symbol']})</div>
+                        <div class="metric-value" style="color: #10b981;">{sd_to_receive:,.4f} SD</div>
+                        <div class="metric-sub">Tasa: 1 SD = ${token_price_cop:,.2f} COP</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+
+                st.subheader("Paso 3: Sube tu Comprobante de Pago")
+                uploaded_file = st.file_uploader("Adjunta la imagen/foto de tu transferencia Nequi:", type=["png", "jpg", "jpeg"])
+
+                if st.button("Enviar Solicitud de Compra"):
+                    if not uploaded_file:
+                        st.error("⚠️ Debes adjuntar la imagen del comprobante para que el administrador pueda procesar tu compra.")
+                    else:
+                        try:
+                            img_bytes = uploaded_file.read()
+                            submit_purchase_request(st.session_state.wallet_code, amount_cop_input, sd_to_receive, img_bytes)
+                            st.balloons()
+                            st.success("🎉 ¡Tu comprobante ha sido enviado con éxito al administrador! Tu compra de " + f"{sd_to_receive:,.4f} SD" + " está siendo procesada.")
+                        except Exception as e:
+                            st.error(f"Error procesando la solicitud: {str(e)}")
+
+
+        elif st.session_state.comprar_sd_mode == "BILLS":
+            st.markdown(f"<h3 class='golden-title'>🪙 Recargar SD con BILLS</h3>", unsafe_allow_html=True)
+            st.write("Envía BILLS a esta dirección:")
+            
+            # Dirección de wallet de BILLS
+            bills_wallet_address = "0x71C7656EC7ab88b098defB751B7401B5f6d1476B"
+            
+            # Mostrar la dirección con botón de copiar usando un componente HTML/JS
+            copy_html = f"""
+            <div style="display:flex; align-items:center; gap:10px; font-family:sans-serif; background-color: #000000; padding: 5px 0;">
+                <input type="text" value="{bills_wallet_address}" id="billsWallet" readonly style="background-color:#0d0d11; color:#ffffff; padding:10px; border:1px solid #ffd70044; border-radius:6px; font-family:monospace; width:340px; font-size:0.95rem; outline:none;">
+                <button onclick="navigator.clipboard.writeText('{bills_wallet_address}'); alert('📋 Dirección de BILLS copiada al portapapeles!');" style="background:#10b981; color:#000000; border:2px solid #ffd700; border-radius:6px; font-weight:800; padding:10px 15px; cursor:pointer; font-size:0.85rem; text-transform:uppercase;">COPIAR DIRECCIÓN</button>
+            </div>
+            """
+            st.components.v1.html(copy_html, height=60)
+            
+            with st.form("bills_purchase_form"):
+                st.write("<b>Completa los detalles de tu transferencia para procesar la recarga:</b>", unsafe_allow_html=True)
+                
+                cant_bills = st.number_input("Cantidad de BILLS que enviaste", min_value=0.0, step=10.0, format="%.4f")
+                wallet_orig = st.text_input("Tu wallet de origen BILLS", placeholder="Ej. 0xYourWalletAddress...")
+                tx_hash = st.text_input("Hash o ID de la transacción (Opcional)", placeholder="Ej. 0xTxHash...")
+                
+                uploaded_file_bills = st.file_uploader("Subir comprobante (Obligatorio)", type=["png", "jpg", "jpeg"], key="bills_proof_file_uploader")
+                
+                # Campo 5: Auto-filled read-only
+                st.text_input("Tu ID / Wallet SD donde recibirás", value=st.session_state.wallet_code, disabled=True)
+                
+                submit_bills = st.form_submit_button("ENVIAR SOLICITUD DE COMPRA")
+                if submit_bills:
+                    if cant_bills <= 0:
+                        st.error("⚠️ La cantidad de BILLS enviada debe ser mayor a cero.")
+                    elif not wallet_orig.strip():
+                        st.error("⚠️ Debes ingresar tu wallet de origen BILLS.")
+                    elif not uploaded_file_bills:
+                        st.error("⚠️ Debes subir la captura o foto del comprobante de envío.")
+                    else:
+                        try:
+                            img_bytes_bills = uploaded_file_bills.read()
+                            submit_bills_purchase_request(st.session_state.wallet_code, wallet_orig.strip(), cant_bills, img_bytes_bills, tx_hash.strip())
+                            st.balloons()
+                            st.success("🎉 ¡Tu solicitud de recarga con BILLS ha sido enviada al administrador! Queda bajo el estado **PENDIENTE** de verificación.")
+                            import time
+                            time.sleep(2.0)
+                            st.rerun()
+                        except Exception as e_bills:
+                            st.error(f"Error procesando la solicitud: {str(e_bills)}")
+    
     # --- PESTAÑA: NOTIFICACIONES ---
     elif "Notificaciones" in choice:
         st.markdown("<h1 class='golden-title'>🔔 Bandeja de Notificaciones</h1>", unsafe_allow_html=True)
@@ -6058,9 +6263,11 @@ else:
         pending_withdraws_count = len(get_pending_withdrawals())
         pending_store_count = len(get_pending_store_purchases())
         
-        tab_mint, tab_claims, tab_withdraws, tab_store, tab_store_catalog, tab_games_control, tab_staking_admin, tab_referrals, tab_fees, tab_messenger, tab_broadcast, tab_settings_token = st.tabs([
+        pending_bills_count = get_pending_bills_count()
+        tab_mint, tab_claims, tab_bills_claims, tab_withdraws, tab_store, tab_store_catalog, tab_games_control, tab_staking_admin, tab_referrals, tab_fees, tab_messenger, tab_broadcast, tab_settings_token = st.tabs([
             "💸 Emisión de Monedas", 
             f"📥 Comprobantes por Confirmar ({pending_claims_count})", 
+            f"🪙 Solicitudes BILLS -> SD ({pending_bills_count})",
             f"💰 Solicitudes de Retiro ({pending_withdraws_count})",
             f"🛍️ Pedidos de Tienda ({pending_store_count})",
             "🛍️ Catálogo de Tienda",
@@ -6212,6 +6419,82 @@ else:
                                 st.image(row['proof_image'], caption="Foto del recibo de Nequi subida por el usuario", use_container_width=True)
                             except Exception as e:
                                 st.error(f"No se pudo cargar la imagen del comprobante: {str(e)}")
+                                
+        with tab_bills_claims:
+            st.subheader("🪙 SOLICITUDES BILLS -> SD")
+            st.write("Revisa y valida las solicitudes de recarga enviadas por los usuarios que pagaron usando BILLS.")
+            
+            bills_claims_df = get_pending_bills_purchases()
+            
+            if len(bills_claims_df) == 0:
+                st.info("🎉 ¡Al día! No hay solicitudes de recarga de BILLS pendientes de verificación.")
+            else:
+                # Show summary table
+                st.write("<b>📋 Tabla de Solicitudes Pendientes:</b>", unsafe_allow_html=True)
+                df_summary = bills_claims_df.copy()
+                df_summary = df_summary[['timestamp', 'username', 'fullname', 'cantidadEnviada', 'hash']]
+                df_summary.columns = ['Fecha', 'Usuario', 'Nombre Completo', 'Cantidad BILLS', 'Hash']
+                st.dataframe(df_summary, use_container_width=True)
+                
+                st.markdown("---")
+                st.write("<b>🔍 Detalle y Acciones por Solicitud:</b>", unsafe_allow_html=True)
+                
+                # Loop through each request to approve/reject
+                for idx, row in bills_claims_df.iterrows():
+                    with st.expander(f"🪙 Solicitud #{row['id']} - Usuario: {row['fullname']} ({row['user_code']}) - {row['cantidadEnviada']} BILLS"):
+                        col_bills_info, col_bills_image = st.columns([1, 1])
+                        
+                        with col_bills_info:
+                            st.markdown(f"""
+                            <div class="card" style="border-left: 3px solid #10b981;">
+                                <p><b>ID de Solicitud:</b> #{row['id']}</p>
+                                <p><b>Usuario:</b> {row['fullname']} (@{row['username']})</p>
+                                <p><b>ID / Wallet SD (Destino):</b> <code style="color:#10b981;">{row['user_code']}</code></p>
+                                <p><b>Wallet Origen BILLS:</b> <code style="color:#ffd700;">{row['walletOrigen']}</code></p>
+                                <p><b>Hash / ID Transacción:</b> <code>{row['hash'] if row['hash'] else 'No proporcionado'}</code></p>
+                                <p><b>Cantidad BILLS Declarada:</b> <span style="color:#ffd700; font-weight:bold;">{row['cantidadEnviada']} BILLS</span></p>
+                                <p><b>Fecha de Solicitud:</b> {row['timestamp']}</p>
+                            </div>
+                            """, unsafe_allow_html=True)
+                            
+                            with st.form(f"admin_bills_form_{row['id']}"):
+                                st.write("<b>Validación y Conversión de la Solicitud:</b>", unsafe_allow_html=True)
+                                
+                                cant_verif = st.number_input("Cantidad de BILLS VERIFICADA (lo que realmente llegó):", value=float(row['cantidadEnviada']), min_value=0.0, format="%.4f", key=f"bills_verif_val_{row['id']}")
+                                cant_sd_to_send = st.number_input("Cantidad de SD que se le enviará (conversión):", value=float(cant_verif), min_value=0.0, format="%.4f", key=f"bills_sd_val_{row['id']}")
+                                
+                                col_b_app, col_b_rej = st.columns(2)
+                                with col_b_app:
+                                    submit_app_b = st.form_submit_button("👍 APROBAR Y ENVIAR SD")
+                                    if submit_app_b:
+                                        if cant_sd_to_send <= 0:
+                                            st.error("⚠️ La cantidad de SD a enviar debe ser mayor a cero.")
+                                        else:
+                                            success, msg = approve_bills_purchase(row['id'], cant_verif, cant_sd_to_send)
+                                            if success:
+                                                st.success("¡Solicitud aprobada con éxito y tokens SD transferidos!")
+                                                st.balloons()
+                                                st.rerun()
+                                            else:
+                                                st.error(msg)
+                                with col_b_rej:
+                                    submit_rej_b = st.form_submit_button("❌ RECHAZAR")
+                                    if submit_rej_b:
+                                        if reject_bills_purchase(row['id']):
+                                            st.warning("Solicitud de BILLS rechazada.")
+                                            st.rerun()
+                                        else:
+                                            st.error("Error al rechazar la solicitud.")
+                                            
+                        with col_bills_image:
+                            st.subheader("📷 Comprobante Recibido")
+                            if row['comprobanteUrl']:
+                                try:
+                                    st.image(row['comprobanteUrl'], caption=f"Comprobante enviado por {row['fullname']}", use_container_width=True)
+                                except Exception as e_img:
+                                    st.error(f"No se pudo cargar la imagen del comprobante: {str(e_img)}")
+                            else:
+                                st.info("No se cargó ninguna imagen de comprobante.")
                                 
         with tab_withdraws:
             st.subheader("💰 Validación y Pago Manual de Retiros a Nequi")
