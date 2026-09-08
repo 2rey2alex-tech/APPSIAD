@@ -5493,7 +5493,7 @@ st.markdown(f"""
 
 if not st.session_state.logged_in:
     st.sidebar.title("🔐 Alianza CryptoWallet")
-    st.sidebar.markdown("<div style='background-color: #1e293b; padding: 6px 12px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 15px; text-align: center;'><span style='color: #ffd700; font-size: 0.85rem; font-weight: bold;'>🚀 Versión de la App: v80</span></div>", unsafe_allow_html=True)
+    st.sidebar.markdown("<div style='background-color: #1e293b; padding: 6px 12px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 15px; text-align: center;'><span style='color: #ffd700; font-size: 0.85rem; font-weight: bold;'>🚀 Versión de la App: v81</span></div>", unsafe_allow_html=True)
     menu = st.sidebar.selectbox("Seleccione una opción", ["Iniciar Sesión", "Registrarse"])
     
     if menu == "Iniciar Sesión":
@@ -5561,7 +5561,7 @@ if not st.session_state.logged_in:
 else:
     # Sidebar de usuario conectado con toques dorados
     st.sidebar.markdown(f"<h2 class='golden-title'>👋 {st.session_state.fullname}</h2>", unsafe_allow_html=True)
-    st.sidebar.markdown("<div style='background-color: #1e293b; padding: 6px 12px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 15px; text-align: center;'><span style='color: #ffd700; font-size: 0.85rem; font-weight: bold;'>🚀 Versión de la App: v80</span></div>", unsafe_allow_html=True)
+    st.sidebar.markdown("<div style='background-color: #1e293b; padding: 6px 12px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 15px; text-align: center;'><span style='color: #ffd700; font-size: 0.85rem; font-weight: bold;'>🚀 Versión de la App: v81</span></div>", unsafe_allow_html=True)
     st.sidebar.markdown(f"**Billetera ID (Código):** `{st.session_state.wallet_code}`")
     
     # Obtener el número de notificaciones pendientes
@@ -7388,7 +7388,11 @@ else:
         # ----------------- JUEGO 2: PIEDRA, PAPEL O TIJERA contra BOT -----------------
         with tab_sub_ppt:
             st.markdown("#### 🥊 Duelo Rápido: Piedra, Papel o Tijera")
-            _, ppt_mult = get_game_setting('ppt_multiplier', default_num=1.90)
+            _, raw_ppt_mult = get_game_setting('ppt_multiplier', default_num=1.90)
+            try:
+                ppt_mult = float(raw_ppt_mult) if raw_ppt_mult is not None else 1.90
+            except Exception:
+                ppt_mult = 1.90
         
             st.write(f"Desafía al Bot Alianza. Si ganas el duelo, te llevas tu apuesta multiplicada por **{format_num(ppt_mult)}x**. Si hay empate, se te devuelve tu apuesta.")
         
@@ -7743,8 +7747,14 @@ else:
             s_prizes_str, _ = get_game_setting('scratch_prizes', default_val='0.0,0.2,0.5,1.0,3.0,10.0')
             s_probs_str, _ = get_game_setting('scratch_prob', default_val='50,25,15,7,2,1')
         
-            s_prizes = [float(p) for p in s_prizes_str.split(',') if p]
-            s_probs = [int(p) for p in s_probs_str.split(',') if p]
+            try:
+                s_prizes = [float(p) for p in s_prizes_str.split(',') if p]
+                s_probs = [int(p) for p in s_probs_str.split(',') if p]
+                if len(s_prizes) != len(s_probs) or len(s_prizes) == 0:
+                    raise ValueError
+            except Exception:
+                s_prizes = [0.0, 0.2, 0.5, 1.0, 3.0, 10.0]
+                s_probs = [50, 25, 15, 7, 2, 1]
         
             st.write(f"Adquiere una tarjeta virtual raspa y gana por solo **{format_num(scratch_cost)} SD**. Revela 3 casillas iguales para ganar hasta **{format_num(max(s_prizes))} SD**.")
         
