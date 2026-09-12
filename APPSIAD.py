@@ -902,8 +902,181 @@ init_db()
 def hash_password(password):
     return hashlib.sha256(password.encode()).hexdigest()
 
+def hash_password_legacy(password):
+    return hashlib.sha256(password.encode()).hexdigest()
+
 def get_db_connection():
-    return sqlite3.connect("wallet_pro.db", timeout=30)
+    custom_url = None
+    try:
+        if 'custom_db_url' in st.session_state and st.session_state.custom_db_url:
+            custom_url = st.session_state.custom_db_url
+    except Exception:
+        pass
+    return SmartDBConnection(custom_url)
+
+class SmartDBConnection:
+    def __init__(self, db_url=None):
+        self.db_url = db_url
+        self.is_postgres = False
+        self.conn = None
+        
+        url_to_use = self.db_url
+        if not url_to_use:
+            try:
+                if "DATABASE_URL" in st.secrets:
+                    url_to_use = st.secrets["DATABASE_URL"]
+                elif "postgres" in st.secrets and "url" in st.secrets["postgres"]:
+                    url_to_use = st.secrets["postgres"]["url"]
+            except Exception:
+                pass
+        if not url_to_use:
+            import os
+            url_to_use = os.environ.get("DATABASE_URL")
+            
+        if url_to_use and ("postgresql://" in url_to_use or "postgres://" in url_to_use):
+            try:
+                import psycopg2
+                if url_to_use.startswith("postgres://"):
+                    url_to_use = url_to_use.replace("postgres://", "postgresql://", 1)
+                self.conn = psycopg2.connect(url_to_use)
+                self.is_postgres = True
+            except Exception:
+                self.conn = sqlite3.connect("wallet_pro.db", timeout=30)
+                self.is_postgres = False
+        else:
+            self.conn = sqlite3.connect("wallet_pro.db", timeout=30)
+            self.is_postgres = False
+
+    def cursor(self):
+        real_cursor = self.conn.cursor()
+        return SmartDBCursor(real_cursor, self.is_postgres)
+
+    def commit(self):
+        return self.conn.commit()
+
+    def rollback(self):
+        return self.conn.rollback()
+
+    def close(self):
+        return self.conn.close()
+
+    def __getattr__(self, name):
+        return getattr(self.conn, name)
+
+class SmartDBCursor:
+    def __init__(self, cursor, is_postgres=False):
+        self.cursor = cursor
+        self.is_postgres = is_postgres
+
+    def execute(self, sql, params=()):
+        if self.is_postgres:
+            pg_sql = sql.replace('?', '%s')
+            pg_sql = pg_sql.replace('INTEGER PRIMARY KEY AUTOINCREMENT', 'SERIAL PRIMARY KEY')
+            pg_sql = pg_sql.replace('DATETIME', 'TIMESTAMP')
+            pg_sql = pg_sql.replace('BLOB', 'BYTEA')
+            pg_sql = pg_sql.replace("DATE('now')", "CURRENT_DATE")
+            pg_sql = pg_sql.replace("datetime('now', '-7 days')", "(CURRENT_TIMESTAMP - INTERVAL '7 days')")
+            pg_sql = pg_sql.replace("datetime('now', '-30 days')", "(CURRENT_TIMESTAMP - INTERVAL '30 days')")
+            pg_sql = pg_sql.replace("datetime('now', '-1 day')", "(CURRENT_TIMESTAMP - INTERVAL '1 day')")
+            self.cursor.execute(pg_sql, params)
+        else:
+            self.cursor.execute(sql, params)
+
+    def executemany(self, sql, params_list):
+        if self.is_postgres:
+            pg_sql = sql.replace('?', '%s')
+            pg_sql = pg_sql.replace('INTEGER PRIMARY KEY AUTOINCREMENT', 'SERIAL PRIMARY KEY')
+            pg_sql = pg_sql.replace('DATETIME', 'TIMESTAMP')
+            pg_sql = pg_sql.replace('BLOB', 'BYTEA')
+            self.cursor.executemany(pg_sql, params_list)
+        else:
+            self.cursor.executemany(sql, params_list)
+
+    def fetchone(self):
+        return self.cursor.fetchone()
+
+    def fetchall(self):
+        return self.cursor.fetchall()
+
+    @property
+    def lastrowid(self):
+        if self.is_postgres:
+            try:
+                self.cursor.execute("SELECT LASTVAL();")
+                return self.cursor.fetchone()[0]
+            except Exception:
+                return None
+        return getattr(self.cursor, 'lastrowid', None)
+
+def export_database_to_json(get_db_conn_fn):
+    import json
+    conn = get_db_conn_fn()
+    cursor = conn.cursor()
+    
+    if getattr(conn, 'is_postgres', False):
+        cursor.execute("""
+            SELECT table_name FROM information_schema.tables 
+            WHERE table_schema = 'public' AND table_type = 'BASE TABLE'
+        """)
+        tables = [r[0] for r in cursor.fetchall()]
+    else:
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")
+        tables = [r[0] for r in cursor.fetchall()]
+        
+    backup_dict = {}
+    for t in tables:
+        try:
+            if getattr(conn, 'is_postgres', False):
+                cursor.execute(f'SELECT * FROM "{t}"')
+            else:
+                cursor.execute(f'SELECT * FROM [{t}]')
+            rows = cursor.fetchall()
+            cols = [desc[0] for desc in cursor.description] if cursor.description else []
+            backup_dict[t] = {
+                'columns': cols,
+                'rows': rows
+            }
+        except Exception:
+            pass
+            
+    conn.close()
+    return json.dumps(backup_dict, default=str, indent=2)
+
+def import_database_from_json(json_str, get_db_conn_fn):
+    import json
+    try:
+        data = json.loads(json_str)
+    except Exception as e:
+        return False, f'Error al leer archivo JSON: {str(e)}'
+        
+    conn = get_db_conn_fn()
+    cursor = conn.cursor()
+    
+    restored_count = 0
+    for table_name, table_data in data.items():
+        cols = table_data.get('columns', [])
+        rows = table_data.get('rows', [])
+        if not cols or not rows:
+            continue
+            
+        col_names = ', '.join([f'"{c}"' if getattr(conn, 'is_postgres', False) else f'[{c}]' for c in cols])
+        placeholders = ', '.join(['%s' if getattr(conn, 'is_postgres', False) else '?' for _ in cols])
+        
+        sql = f'INSERT OR REPLACE INTO [{table_name}] ({col_names}) VALUES ({placeholders})'
+        if getattr(conn, 'is_postgres', False):
+            sql = f'INSERT INTO "{table_name}" ({col_names}) VALUES ({placeholders}) ON CONFLICT DO NOTHING'
+            
+        for r in rows:
+            try:
+                cursor.execute(sql, r)
+                restored_count += 1
+            except Exception:
+                pass
+                
+    conn.commit()
+    conn.close()
+    return True, f'¡Restauración exitosa! Se han procesado y recuperado {restored_count} registros.'
+
 
 def generate_unique_wallet_code():
     conn = get_db_connection()
@@ -2492,6 +2665,18 @@ def is_user_human_blocked(user_code):
     conn.close()
     return bool(res[0]) if res else False
 
+def get_current_onboarding_reward_sd():
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT COUNT(*) FROM users WHERE is_admin = 0")
+        total_registered = cursor.fetchone()[0] or 0
+    except Exception:
+        total_registered = 0
+    conn.close()
+    return max(0.0, 1000.0 - (total_registered * 10.0))
+
+
 def verify_human_p2p(user_code, imei, face_hash, bpm):
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -2538,19 +2723,35 @@ def verify_human_p2p(user_code, imei, face_hash, bpm):
             VALUES (?, ?, ?, 1, 1)
         """, (user_code, today_date, bpm))
         
+        # Calculate dynamic onboarding reward (Base 1000 SD minus 10 SD per existing user)
+        cursor.execute("SELECT COUNT(*) FROM users WHERE is_admin = 0 AND wallet_code != ?", (user_code,))
+        total_registered = cursor.fetchone()[0] or 0
+        reward_sd = max(0.0, 1000.0 - (total_registered * 10.0))
+        
         conn.commit()
         conn.close()
         
-        # Pay 5,000 SD reward
-        success, msg = send_points("99999", user_code, 5000.0)
-        if success:
+        # Pay dynamic SD reward
+        if reward_sd > 0:
+            success, msg = send_points("99999", user_code, reward_sd)
+        else:
+            success, msg = True, ""
+            
+        if success and reward_sd > 0:
             add_notification(
                 user_code,
                 f"🎉 <b>¡Bienvenido Humano Real!</b> Has completado con éxito tu Prueba de Vida (Human Proof). "
-                f"Se han acreditado <b>5,000 SD gratis</b> a tu billetera y tu <b>ID de Humano es {h_id}</b>. "
+                f"Se han acreditado <b>{format_num(reward_sd)} SD gratis</b> a tu billetera y tu <b>ID de Humano es {h_id}</b>. "
                 f"¡Disfruta ahora del Bono Doble (2X) en todas tus facturas minadas!"
             )
-        return True, f"¡Felicidades! Has sido verificado como Humano Real de Ibagué. ID asignado: {h_id} y se han acreditado 5.000 SD en tu balance."
+        elif success:
+            add_notification(
+                user_code,
+                f"🎉 <b>¡Bienvenido Humano Real!</b> Has completado con éxito tu Prueba de Vida (Human Proof). "
+                f"Tu <b>ID de Humano es {h_id}</b>. "
+                f"¡Disfruta ahora del Bono Doble (2X) en todas tus facturas minadas!"
+            )
+        return True, f"¡Felicidades! Has sido verificado como Humano Real de Ibagué. ID asignado: {h_id} y se han acreditado {format_num(reward_sd)} SD en tu balance."
     except Exception as e:
         conn.rollback()
         conn.close()
@@ -5493,7 +5694,7 @@ st.markdown(f"""
 
 if not st.session_state.logged_in:
     st.sidebar.title("🔐 Alianza CryptoWallet")
-    st.sidebar.markdown("<div style='background-color: #1e293b; padding: 6px 12px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 15px; text-align: center;'><span style='color: #ffd700; font-size: 0.85rem; font-weight: bold;'>🚀 Versión de la App: v81</span></div>", unsafe_allow_html=True)
+    st.sidebar.markdown("<div style='background-color: #1e293b; padding: 6px 12px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 15px; text-align: center;'><span style='color: #ffd700; font-size: 0.85rem; font-weight: bold;'>🚀 Versión de la App: v84</span></div>", unsafe_allow_html=True)
     menu = st.sidebar.selectbox("Seleccione una opción", ["Iniciar Sesión", "Registrarse"])
     
     if menu == "Iniciar Sesión":
@@ -5561,7 +5762,7 @@ if not st.session_state.logged_in:
 else:
     # Sidebar de usuario conectado con toques dorados
     st.sidebar.markdown(f"<h2 class='golden-title'>👋 {st.session_state.fullname}</h2>", unsafe_allow_html=True)
-    st.sidebar.markdown("<div style='background-color: #1e293b; padding: 6px 12px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 15px; text-align: center;'><span style='color: #ffd700; font-size: 0.85rem; font-weight: bold;'>🚀 Versión de la App: v81</span></div>", unsafe_allow_html=True)
+    st.sidebar.markdown("<div style='background-color: #1e293b; padding: 6px 12px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 15px; text-align: center;'><span style='color: #ffd700; font-size: 0.85rem; font-weight: bold;'>🚀 Versión de la App: v84</span></div>", unsafe_allow_html=True)
     st.sidebar.markdown(f"**Billetera ID (Código):** `{st.session_state.wallet_code}`")
     
     # Obtener el número de notificaciones pendientes
@@ -5651,7 +5852,8 @@ else:
                 st.session_state.onboarding_step = 1
                 
             if st.session_state.onboarding_step == 1:
-                st.markdown("""
+                current_reward_preview = get_current_onboarding_reward_sd()
+                st.markdown(f"""
                 <div class="card" style="border-left: 5px solid #ffd700; background: linear-gradient(135deg, #0d0d11 0%, #1f1401 100%) !important; padding: 22px; text-align: center; box-shadow: 0 4px 15px rgba(255, 215, 0, 0.25);">
                     <h2 style="color: #ffd700; font-weight: 800; font-size: 1.6rem; margin-top: 0;">🌾 ¡Bienvenido a Alianza Ibagué! 🚀</h2>
                     <p style="font-size: 1.05rem; line-height: 1.6rem; color: #ffffff; margin: 15px 0;">
@@ -5660,7 +5862,7 @@ else:
                     <div style="background-color: #00000033; padding: 15px; border-radius: 8px; text-align: left; margin: 20px 0; border: 1px dashed #ffd70044;">
                         <h4 style="color: #ffd700; margin-top: 0; font-weight: bold;">🎁 Beneficios Exclusivos al Verificarte:</h4>
                         <ul style="color: #ffffff; font-size: 0.95rem; line-height: 1.5rem; padding-left: 20px; margin: 0;">
-                            <li>💰 <b>Recompensa Instantánea:</b> ¡Obtén <b>5,000 SD gratis</b> de inmediato en tu billetera!</li>
+                            <li>💰 <b>Recompensa Instantánea:</b> ¡Obtén <b>{format_num(current_reward_preview)} SD gratis</b> de inmediato en tu billetera! (Disminuye 10 SD por cada usuario registrado).</li>
                             <li>🧾 <b>Bono Doble (2X):</b> ¡Tus ganancias por facturas minadas se duplican, pasando de un <b>0.3% a un 0.6%</b> del valor total de la factura!</li>
                             <li>🔒 <b>Seguridad de Red:</b> Mantén a salvo tu saldo y tus retiros de forma confiable.</li>
                         </ul>
@@ -5788,7 +5990,8 @@ else:
                     simulated_imei = hashlib.sha256((st.session_state.username + "_device").encode()).hexdigest()[:15].upper()
                     st.text_input("📱 Identificador Único de Dispositivo (IMEI):", value=simulated_imei, disabled=True)
                     
-                    if st.button("🎉 COMPLETAR REGISTRO Y RECLAMAR 5.000 SD GRATIS", use_container_width=True):
+                    current_reward_preview = get_current_onboarding_reward_sd()
+                    if st.button(f"🎉 COMPLETAR REGISTRO Y RECLAMAR {format_num(current_reward_preview)} SD GRATIS", use_container_width=True):
                         # Call verify function
                         success_h, msg_h = verify_human_p2p(
                             st.session_state.wallet_code, 
@@ -9724,7 +9927,7 @@ else:
             pending_invoices_count = 0
         conn_inv.close()
 
-        tab_mint, tab_claims, tab_bills_claims, tab_withdraws, tab_store, tab_store_catalog, tab_games_control, tab_staking_admin, tab_p2p_admin, tab_finca_admin, tab_chamba_admin, tab_humanos_admin, tab_facturas_admin, tab_mina_madre, tab_referrals, tab_fees, tab_messenger, tab_broadcast, tab_settings_token = st.tabs([
+        tab_mint, tab_claims, tab_bills_claims, tab_withdraws, tab_store, tab_store_catalog, tab_games_control, tab_staking_admin, tab_p2p_admin, tab_finca_admin, tab_chamba_admin, tab_humanos_admin, tab_facturas_admin, tab_mina_madre, tab_cloud_db, tab_referrals, tab_fees, tab_messenger, tab_broadcast, tab_settings_token = st.tabs([
             "💸 Emisión de Monedas", 
             f"📥 Comprobantes por Confirmar ({pending_claims_count})", 
             f"🪙 Solicitudes BILLS -> SD ({pending_bills_count})",
@@ -9739,6 +9942,7 @@ else:
             "👥 Gestión Humanos Reales",
             f"🧾 Auditoría de Facturas ({pending_invoices_count})",
             "👑 Mina Madre",
+            "☁️ Persistencia Nube & Respaldos",
             f"👥 Comisiones de Referidos ({pending_rewards_count})",
             "📊 Comisiones de Plataforma",
             "🚚 Control de Mensajería",
@@ -10582,6 +10786,88 @@ else:
                     repartos_df_disp.columns = ['Fecha Reparto', 'Monto de Comisión Total', 'Monto Distribuido (50%)', 'COP por Lote']
                     st.dataframe(repartos_df_disp, use_container_width=True)
                     
+        with tab_cloud_db:
+            st.subheader("☁️ Persistencia Nube & Respaldos de la Base de Datos")
+            st.write("Asegura la persistencia total de tus usuarios, contraseñas, saldos e historial de transacciones para que **NUNCA se borre nada** al actualizar código en GitHub o reiniciar Streamlit Cloud.")
+            
+            conn_chk = get_db_connection()
+            is_pg = getattr(conn_chk, 'is_postgres', False)
+            conn_chk.close()
+            
+            if is_pg:
+                st.success("🟢 **ESTADO: CONECTADO A BASE DE DATOS EN LA NUBE (PostgreSQL)**. Todos los usuarios, registros, contraseñas, saldos e historiales están 100% guardados de forma permanente.")
+            else:
+                st.warning("⚠️ **ESTADO: BASE DE DATOS LOCAL (SQLite)**. Para garantizar persistencia permanente entre reinicios de Streamlit Cloud, conecta una base de datos PostgreSQL gratuita (Supabase / Neon / Render) o descarga un respaldo JSON a continuación.")
+                
+            col_db1, col_db2 = st.columns(2)
+            
+            with col_db1:
+                st.markdown("### 📥 Descargar Respaldo Completo (JSON)")
+                st.write("Descarga una copia de seguridad en tiempo real de todos los usuarios, saldos, contraseñas e historiales de la app con un solo clic:")
+                
+                try:
+                    backup_json_data = export_database_to_json(get_db_connection)
+                    st.download_button(
+                        label="📥 Descargar Backup Completo (.json)",
+                        data=backup_json_data,
+                        file_name=f"wallet_backup_{datetime.now().strftime('%Y-%m-%d_%H-%M')}.json",
+                        mime="application/json",
+                        use_container_width=True
+                    )
+                except Exception as e_bk:
+                    st.error(f"Error al generar backup: {str(e_bk)}")
+                    
+                st.markdown("---")
+                st.markdown("### 📤 Restaurar Respaldo (.json)")
+                st.write("Si reinstalas la app o reinicias el servidor, sube tu archivo JSON respaldado para restaurar al instante todos los usuarios, balances e historiales intactos:")
+                
+                uploaded_backup = st.file_uploader("Subir archivo de respaldo (.json):", type=["json"], key="backup_restore_uploader")
+                if st.button("📤 Restaurar Base de Datos Ahora", key="restore_db_btn"):
+                    if not uploaded_backup:
+                        st.error("⚠️ Por favor selecciona un archivo JSON de respaldo.")
+                    else:
+                        try:
+                            json_str_content = uploaded_backup.read().decode('utf-8')
+                            succ_r, msg_r = import_database_from_json(json_str_content, get_db_connection)
+                            if succ_r:
+                                st.success(msg_r)
+                                st.balloons()
+                                st.rerun()
+                            else:
+                                st.error(msg_r)
+                        except Exception as ex_r:
+                            st.error(f"Error al procesar la restauración: {str(ex_r)}")
+
+            with col_db2:
+                st.markdown("### ☁️ Conectar Base de Datos en la Nube (Supabase / Neon / PostgreSQL)")
+                st.write("Ingresa la cadena de conexión de tu base de datos en la nube (PostgreSQL / Supabase) para que la app lea y escriba directamente allí:")
+                
+                curr_custom_url = st.session_state.get("custom_db_url", "")
+                with st.form("connect_postgres_form"):
+                    new_pg_url = st.text_input("postgresql://user:password@host:5432/dbname:", value=curr_custom_url, placeholder="postgresql://postgres:pass@db.supabase.co:5432/postgres")
+                    submit_pg = st.form_submit_button("🚀 Guardar y Conectar Base de Datos Nube")
+                    
+                    if submit_pg:
+                        if not ("postgresql://" in new_pg_url or "postgres://" in new_pg_url):
+                            st.error("⚠️ La URL debe ser una cadena de conexión PostgreSQL válida (comenzar con postgresql:// o postgres://).")
+                        else:
+                            st.session_state.custom_db_url = new_pg_url
+                            st.success("✅ ¡Conexión establecida! Se utilizará la base de datos en la nube para persistencia total.")
+                            st.rerun()
+                            
+                st.markdown("""
+                <div class="card" style="border-left: 4px solid #ffd700;">
+                    <h4 style="color:#ffd700; margin-top:0;">📝 Instrucciones para Streamlit Cloud Secrets:</h4>
+                    <p style="font-size:0.85rem; color:#e2e8f0; line-height:1.4rem;">
+                        Para que Streamlit Cloud se conecte siempre a la nube sin pedir la URL en pantalla:
+                        <br>1. Ve a tu panel de <b>Streamlit Cloud</b> -> Configuración de la App (Settings) -> <b>Secrets</b>.
+                        <br>2. Agrega la siguiente línea con tu cadena de conexión Supabase/Neon:
+                        <br><code style="color:#10b981;">DATABASE_URL = "postgresql://postgres:tu_password@host:5432/postgres"</code>
+                        <br>3. ¡Listo! La app mantendrá tus usuarios, saldos e historial guardados para siempre.
+                    </p>
+                </div>
+                """, unsafe_allow_html=True)
+
             with tab_mm_pub:
                 st.subheader("📢 Log de Publicidad / Otras Comisiones Manuales")
                 st.write("Registra ingresos extraordinarios cobrados en efectivo o canales externos (como contratos de publicidad de negocios de Ibagué) para sumarlos al pool de comisiones de la semana:")
