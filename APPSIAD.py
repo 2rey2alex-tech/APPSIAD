@@ -5643,19 +5643,23 @@ token = get_token_settings()
 btc_price = fetch_btc_price()
 usd_cop = fetch_usd_cop_rate()
 
-# Cargar precio en tiempo real de DexScreener (Contrato: 0xC324649213ec1757190bc4b78bcD41Cc1545C264)
-live_sd_price = fetch_sd_price_from_dexscreener()
-if live_sd_price is not None and live_sd_price > 0:
-    token_price_usd = live_sd_price
-    # Sincronizar automáticamente en la BD para que quede actualizado si el admin no lo cambia manualmente
-    try:
-        conn_sync = get_db_connection()
-        cursor_sync = conn_sync.cursor()
-        cursor_sync.execute("UPDATE token_settings SET token_price_usd = ? WHERE id = 1", (live_sd_price,))
-        conn_sync.commit()
-        conn_sync.close()
-    except Exception:
-        pass
+# Cargar precio del token y verificar si la Sincronización Automática con DexScreener está activada (0.0=OFF por defecto, 1.0=ON)
+_, sync_dex_enabled = get_game_setting('sync_dexscreener', default_num=0.0)
+
+if sync_dex_enabled == 1.0:
+    live_sd_price = fetch_sd_price_from_dexscreener()
+    if live_sd_price is not None and live_sd_price > 0:
+        token_price_usd = live_sd_price
+        try:
+            conn_sync = get_db_connection()
+            cursor_sync = conn_sync.cursor()
+            cursor_sync.execute("UPDATE token_settings SET token_price_usd = ? WHERE id = 1", (live_sd_price,))
+            conn_sync.commit()
+            conn_sync.close()
+        except Exception:
+            pass
+    else:
+        token_price_usd = token['price_usd']
 else:
     token_price_usd = token['price_usd']
 
@@ -5694,7 +5698,7 @@ st.markdown(f"""
 
 if not st.session_state.logged_in:
     st.sidebar.title("🔐 Alianza CryptoWallet")
-    st.sidebar.markdown("<div style='background-color: #1e293b; padding: 6px 12px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 15px; text-align: center;'><span style='color: #ffd700; font-size: 0.85rem; font-weight: bold;'>🚀 Versión de la App: v84</span></div>", unsafe_allow_html=True)
+    st.sidebar.markdown("<div style='background-color: #1e293b; padding: 6px 12px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 15px; text-align: center;'><span style='color: #ffd700; font-size: 0.85rem; font-weight: bold;'>🚀 Versión de la App: v85</span></div>", unsafe_allow_html=True)
     menu = st.sidebar.selectbox("Seleccione una opción", ["Iniciar Sesión", "Registrarse"])
     
     if menu == "Iniciar Sesión":
@@ -5762,7 +5766,7 @@ if not st.session_state.logged_in:
 else:
     # Sidebar de usuario conectado con toques dorados
     st.sidebar.markdown(f"<h2 class='golden-title'>👋 {st.session_state.fullname}</h2>", unsafe_allow_html=True)
-    st.sidebar.markdown("<div style='background-color: #1e293b; padding: 6px 12px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 15px; text-align: center;'><span style='color: #ffd700; font-size: 0.85rem; font-weight: bold;'>🚀 Versión de la App: v84</span></div>", unsafe_allow_html=True)
+    st.sidebar.markdown("<div style='background-color: #1e293b; padding: 6px 12px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 15px; text-align: center;'><span style='color: #ffd700; font-size: 0.85rem; font-weight: bold;'>🚀 Versión de la App: v85</span></div>", unsafe_allow_html=True)
     st.sidebar.markdown(f"**Billetera ID (Código):** `{st.session_state.wallet_code}`")
     
     # Obtener el número de notificaciones pendientes
@@ -9728,10 +9732,38 @@ else:
         """, unsafe_allow_html=True)
         
         # Botón checkbox llamativo
-        show_express_editors = st.checkbox("⚙️ MOSTRAR EDITORES EXPRESOS DE LA TIENDA Y JUEGOS EN VIVO", value=False, key="show_express_editors_chk_field")
+        show_express_editors = st.checkbox("⚙️ MOSTRAR EDITORES EXPRESOS DE LA TIENDA, PRECIOS Y JUEGOS EN VIVO", value=False, key="show_express_editors_chk_field")
         
-        # --- NUEVA SECCIÓN DE ACCESO EXPRESO A CONFIGURACIÓN DE JUEGOS ---
         if show_express_editors:
+            # --- NUEVA SECCIÓN DE CONTROL EXPRESO DE PRECIO DEL TOKEN Y DEX ---
+            st.markdown("""
+            <div style="background: linear-gradient(135deg, #1c1500 0%, #0d0d11 100%) !important; border: 2.5px solid #ffd700; border-radius: 12px; padding: 18px; margin-top: 15px; margin-bottom: 15px; text-align: center; box-shadow: 0 4px 15px rgba(255, 215, 0, 0.25);">
+                <h3 style="color:#ffd700; margin-top:0; font-weight:900; letter-spacing:0.05em; font-size:1.2rem;">🪙 CONSOLA DE CONTROL DE PRECIO DEL TOKEN SIAD (SD)</h3>
+                <p style="font-size:0.85rem; color:#a1a1aa; margin-bottom:0px;">Activa o desactiva la sincronización con DexScreener/GeckoTerminal y fija el precio oficial en USD de tu criptomoneda al instante.</p>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            with st.expander("🪙 ABRIR CONTROL EXPRESO DE PRECIO DEL TOKEN Y SINCRONIZACIÓN DEX", expanded=True):
+                st.subheader("⚙️ Control de Cotización del Token")
+                token_curr_exp = get_token_settings()
+                _, curr_sync_dex_exp = get_game_setting('sync_dexscreener', default_num=0.0)
+                
+                with st.form("admin_token_price_express_form_v85"):
+                    st.write("<b>Sincronización Automática con Mercado Blockchain:</b>", unsafe_allow_html=True)
+                    sync_dex_chk_exp = st.checkbox("🔄 Activar Sincronización Automática en Tiempo Real con DexScreener/GeckoTerminal (DEX)", value=(curr_sync_dex_exp == 1.0), key="exp_sync_dex_chk_v85", help="DESACTIVADO (Recomendado): La app mantendrá exactamente el precio fijado por ti abajo sin que nada lo sobrescriba.")
+                    
+                    st.write("<b>Precio Oficial Manual del Token:</b>", unsafe_allow_html=True)
+                    exp_token_price_usd = st.number_input("Valor en USD de cada Token (USD):", value=float(token_curr_exp['price_usd']), min_value=0.00000001, format="%.6f", step=0.0001, key="exp_token_price_usd_input_v85")
+                    
+                    submit_exp_price_btn = st.form_submit_button("💾 Guardar Precio Oficial y Modo de Sincronización")
+                    if submit_exp_price_btn:
+                        update_game_setting('sync_dexscreener', '', 1.0 if sync_dex_chk_exp else 0.0)
+                        update_token_settings(token_curr_exp['name'], token_curr_exp['symbol'], token_curr_exp['contract'], exp_token_price_usd, token_curr_exp['nequi_number'])
+                        st.success("✅ ¡Precio oficial del token y modo de sincronización guardados con éxito!")
+                        st.balloons()
+                        st.rerun()
+
+            # --- SECCIÓN DE ACCESO EXPRESO A CONFIGURACIÓN DE JUEGOS ---
             st.markdown("""
             <div style="background: linear-gradient(135deg, #091c12 0%, #0d0d11 100%) !important; border: 2.5px solid #ffd700; border-radius: 12px; padding: 18px; margin-top: 15px; margin-bottom: 15px; text-align: center; box-shadow: 0 4px 15px rgba(255, 215, 0, 0.25);">
                 <h3 style="color:#ffd700; margin-top:0; font-weight:900; letter-spacing:0.05em; font-size:1.2rem;">🎮 CONSOLA DE CONFIGURACIÓN RÁPIDA DE LOS JUEGOS</h3>
@@ -12079,19 +12111,26 @@ else:
                 st.warning("⚠️ Solamente el usuario administrador principal (@admin) puede editar la configuración global de la plataforma y el número de Nequi oficial.")
                 st.info(f"<b>Nequi Oficial del Administrador para Recibir Pagos:</b> {token['nequi_number']}")
             else:
-                st.write("Desde aquí personalizas las características de tu propia criptomoneda y el canal de pago de forma global.")
+                st.write("Desde aquí personalizas las características de tu propia criptomoneda, el precio oficial, el modo de sincronización y la cuenta de recaudación de forma global.")
+                _, curr_sync_dex_main = get_game_setting('sync_dexscreener', default_num=0.0)
                 with st.form("settings_form"):
+                    st.write("<b>🔄 Sincronización de Mercado Blockchain:</b>", unsafe_allow_html=True)
+                    sync_dex_main_chk = st.checkbox("Activar Sincronización Automática en Tiempo Real con DexScreener/GeckoTerminal", value=(curr_sync_dex_main == 1.0), help="DESACTIVADO (Recomendado): El precio de la app se mantendrá fijo en el valor que ingreses abajo.")
+                    
+                    st.write("<b>🪙 Parámetros de la Criptomoneda:</b>", unsafe_allow_html=True)
                     new_name = st.text_input("Nombre de la Criptomoneda", value=token['name'])
                     new_symbol = st.text_input("Símbolo del Token", value=token['symbol'], max_chars=10)
                     new_contract = st.text_input("Dirección de Contrato (Smart Contract)", value=token['contract'])
-                    new_price = st.number_input("Valor en USD de cada Token (USD)", value=token['price_usd'], min_value=0.000001, format="%.6f", step=0.01)
+                    new_price = st.number_input("Valor en USD de cada Token (USD)", value=float(token['price_usd']), min_value=0.00000001, format="%.6f", step=0.0001)
                     new_nequi = st.text_input("Número de Cuenta NEQUI Oficial para Recibir Pagos", value=token['nequi_number'])
-                    submit_s = st.form_submit_button("Guardar Configuración Técnica")
+                    submit_s = st.form_submit_button("💾 Guardar Configuración Técnica y Precio")
                     
                     if submit_s:
                         if not (new_name and new_symbol and new_contract and new_nequi):
                             st.error("Todos los campos de configuración son obligatorios.")
                         else:
+                            update_game_setting('sync_dexscreener', '', 1.0 if sync_dex_main_chk else 0.0)
                             update_token_settings(new_name, new_symbol, new_contract, new_price, new_nequi)
-                            st.success("¡Configuración general guardada con éxito!")
+                            st.success("✅ ¡Configuración general y precio del token guardados con éxito!")
+                            st.balloons()
                             st.rerun()
