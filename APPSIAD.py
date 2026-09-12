@@ -914,6 +914,41 @@ def get_db_connection():
         pass
     return SmartDBConnection(custom_url)
 
+
+def sanitize_db_url(url_str):
+    import re
+    if not url_str:
+        return ""
+    
+    url = str(url_str).strip()
+    if "=" in url and ("postgresql" in url.lower() or "postgres" in url.lower()):
+        parts = url.split("=", 1)
+        if len(parts) > 1 and ("postgresql" in parts[1].lower() or "postgres" in parts[1].lower()):
+            url = parts[1].strip()
+            
+    url = url.strip().strip('"').strip("'").strip("`")
+    
+    if "postgresql" in url and not "postgresql://" in url:
+        url = re.sub(r'^postgresql:?/*\/?', 'postgresql://', url)
+    elif "postgres" in url and not "postgres://" in url and not "postgresql://" in url:
+        url = re.sub(r'^postgres:?/*\/?', 'postgresql://', url)
+        
+    if url.startswith("postgres://"):
+        url = url.replace("postgres://", "postgresql://", 1)
+        
+    if "supabase.co" in url or "supabase.com" in url:
+        url = re.sub(r'(\b|\.)(co|com)5432', r'\1\2:5432/', url)
+        url = re.sub(r'(\b|\.)(co|com)6543', r'\1\2:6543/', url)
+        url = re.sub(r'(\b|\.)(co|com):5432postgres', r'\1\2:5432/postgres', url)
+        url = re.sub(r'(\b|\.)(co|com):6543postgres', r'\1\2:6543/postgres', url)
+        url = re.sub(r':5432([a-zA-Z])', r':5432/\1', url)
+        url = re.sub(r':6543([a-zA-Z])', r':6543/\1', url)
+        
+        if "postgresql://postgres" in url and not "postgresql://postgres:" in url:
+            url = url.replace("postgresql://postgres", "postgresql://postgres:", 1)
+            
+    return url
+
 class SmartDBConnection:
     def __init__(self, db_url=None):
         self.db_url = db_url
@@ -5720,7 +5755,7 @@ st.markdown(f"""
 
 if not st.session_state.logged_in:
     st.sidebar.title("🔐 Alianza CryptoWallet")
-    st.sidebar.markdown("<div style='background-color: #1e293b; padding: 6px 12px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 15px; text-align: center;'><span style='color: #ffd700; font-size: 0.85rem; font-weight: bold;'>🚀 Versión de la App: v87</span></div>", unsafe_allow_html=True)
+    st.sidebar.markdown("<div style='background-color: #1e293b; padding: 6px 12px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 15px; text-align: center;'><span style='color: #ffd700; font-size: 0.85rem; font-weight: bold;'>🚀 Versión de la App: v88</span></div>", unsafe_allow_html=True)
     menu = st.sidebar.selectbox("Seleccione una opción", ["Iniciar Sesión", "Registrarse"])
     
     if menu == "Iniciar Sesión":
@@ -5788,7 +5823,7 @@ if not st.session_state.logged_in:
 else:
     # Sidebar de usuario conectado con toques dorados
     st.sidebar.markdown(f"<h2 class='golden-title'>👋 {st.session_state.fullname}</h2>", unsafe_allow_html=True)
-    st.sidebar.markdown("<div style='background-color: #1e293b; padding: 6px 12px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 15px; text-align: center;'><span style='color: #ffd700; font-size: 0.85rem; font-weight: bold;'>🚀 Versión de la App: v87</span></div>", unsafe_allow_html=True)
+    st.sidebar.markdown("<div style='background-color: #1e293b; padding: 6px 12px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 15px; text-align: center;'><span style='color: #ffd700; font-size: 0.85rem; font-weight: bold;'>🚀 Versión de la App: v88</span></div>", unsafe_allow_html=True)
     st.sidebar.markdown(f"**Billetera ID (Código):** `{st.session_state.wallet_code}`")
     
     # Obtener el número de notificaciones pendientes
@@ -10853,6 +10888,23 @@ else:
             else:
                 st.warning("⚠️ **ESTADO: BASE DE DATOS LOCAL (SQLite)**. Para garantizar persistencia permanente entre reinicios de Streamlit Cloud, conecta una base de datos PostgreSQL gratuita (Supabase / Neon / Render) o descarga un respaldo JSON a continuación.")
                 
+                conn_err = st.session_state.get("db_conn_error")
+                conn_url_used = st.session_state.get("db_conn_url_used")
+                if conn_err or conn_url_used:
+                    st.markdown(f"""
+                    <div class="card" style="border-left: 4px solid #ef4444; background: linear-gradient(135deg, #1f0505 0%, #0d0d11 100%) !important;">
+                        <h4 style="color:#ef4444; margin-top:0;">🔍 Diagnóstico de Conexión a la Nube:</h4>
+                        <p style="font-size:0.88rem; color:#ffffff; margin: 3px 0;"><b>URL detectada en el sistema:</b> <code style="color:#ffd700;">{conn_url_used or 'Ninguna'}</code></p>
+                        <p style="font-size:0.88rem; color:#ff8888; margin: 3px 0;"><b>Reporte del servidor PostgreSQL:</b><br><code>{conn_err or 'No se detectó un protocolo válido postgresql://'}</code></p>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    if conn_url_used:
+                        s_url = sanitize_db_url(conn_url_used)
+                        if st.button("🚀 Re-intentar Conexión con URL Corregida Automáticamente", key="retry_auto_clean_url_btn"):
+                            st.session_state.custom_db_url = s_url
+                            st.success(f"Intentando conectar con URL sanitizada: {s_url}")
+                            st.rerun()
+                
             col_db1, col_db2 = st.columns(2)
             
             with col_db1:
@@ -10902,11 +10954,12 @@ else:
                     submit_pg = st.form_submit_button("🚀 Guardar y Conectar Base de Datos Nube")
                     
                     if submit_pg:
-                        if not ("postgresql://" in new_pg_url or "postgres://" in new_pg_url):
+                        cleaned_pg_url = sanitize_db_url(new_pg_url)
+                        if not cleaned_pg_url or not ("postgresql://" in cleaned_pg_url or "postgres://" in cleaned_pg_url):
                             st.error("⚠️ La URL debe ser una cadena de conexión PostgreSQL válida (comenzar con postgresql:// o postgres://).")
                         else:
-                            st.session_state.custom_db_url = new_pg_url
-                            st.success("✅ ¡Conexión establecida! Se utilizará la base de datos en la nube para persistencia total.")
+                            st.session_state.custom_db_url = cleaned_pg_url
+                            st.success("✅ ¡Conexión procesada! La app probará la conexión con la base de datos en la nube...")
                             st.rerun()
                             
                 st.markdown("""
