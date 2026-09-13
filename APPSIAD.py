@@ -915,14 +915,16 @@ def get_db_connection():
     return SmartDBConnection(custom_url)
 
 
-def sanitize_db_url(url_str):
-    import re
-    if not url_str:
-        return ""
+_GLOBAL_WORKING_DB_URL = None
+
+
+def sanitize_and_prepare_db_urls(raw_url):
+    if not raw_url:
+        return []
+        
+    url = str(raw_url).strip()
     
-    url = str(url_str).strip()
-    
-    # 1. Strip TOML / env variable assignments like DATABASE_URL = "..." or url = '...'
+    # 1. Clean TOML or variable assignment
     if "=" in url and ("postgresql" in url.lower() or "postgres" in url.lower()):
         parts = url.split("=", 1)
         if len(parts) > 1 and ("postgresql" in parts[1].lower() or "postgres" in parts[1].lower()):
@@ -930,7 +932,10 @@ def sanitize_db_url(url_str):
             
     url = url.strip().strip('"').strip("'").strip("`")
     
-    # 2. Fix missing slashes or colons after scheme: postgresqlpostgres... or postgresql:...
+    if not url:
+        return []
+        
+    # 2. Fix missing schemes
     if "postgresql" in url and not "postgresql://" in url:
         url = re.sub(r'^postgresql:?/*\/?', 'postgresql://', url)
     elif "postgres" in url and not "postgres://" in url and not "postgresql://" in url:
@@ -939,15 +944,11 @@ def sanitize_db_url(url_str):
     if url.startswith("postgres://"):
         url = url.replace("postgres://", "postgresql://", 1)
         
-    # 3. Fix missing colon between user and password if pattern postgresql://userpassword@
+    # 3. Fix missing colon in user:password
     if url.startswith("postgresql://") and "@" in url:
         try:
-            scheme_and_rest = url.split("postgresql://", 1)[1]
-            userpass_and_host = scheme_and_rest.split("@", 1)
-            userpass = userpass_and_host[0]
-            hostpath = userpass_and_host[1]
-            
-            # If no colon in userpass, but starts with postgres, e.g. postgresw00xwers1234
+            scheme_rest = url.split("postgresql://", 1)[1]
+            userpass, hostpath = scheme_rest.split("@", 1)
             if ":" not in userpass and userpass.startswith("postgres"):
                 password = userpass[len("postgres"):]
                 if password:
@@ -956,7 +957,7 @@ def sanitize_db_url(url_str):
         except Exception:
             pass
 
-    # 4. Fix host/port/dbname formatting on supabase
+    # 4. Fix port & dbname typos
     if "supabase.co" in url or "supabase.com" in url or "pooler.supabase" in url:
         url = re.sub(r'(\b|\.)(co|com)5432', r'\1\2:5432/', url)
         url = re.sub(r'(\b|\.)(co|com)6543', r'\1\2:6543/', url)
@@ -964,83 +965,96 @@ def sanitize_db_url(url_str):
         url = re.sub(r'(\b|\.)(co|com):6543postgres', r'\1\2:6543/postgres', url)
         url = re.sub(r':5432([a-zA-Z])', r':5432/\1', url)
         url = re.sub(r':6543([a-zA-Z])', r':6543/\1', url)
+
+    prepared_urls = []
+    
+    # If direct Supabase URL, put pooler candidates FIRST for IPv4 compatibility (Streamlit Cloud)
+    m = re.search(r'postgresql://([^:]+):([^@]+)@db\.([a-zA-Z0-9]+)\.supabase\.(?:co|com)(?::\d+)?/(.+)', url)
+    if m:
+        user = m.group(1)
+        password = m.group(2)
+        project_ref = m.group(3)
+        dbname = m.group(4)
         
-    return url
+        pooler_user = f"{user}.{project_ref}" if not user.endswith(f".{project_ref}") else user
+        
+        regions = [
+            "aws-0-us-east-1",
+            "aws-0-sa-east-1",
+            "aws-0-us-west-1",
+            "aws-0-eu-central-1",
+            "aws-0-ap-southeast-1"
+        ]
+        for reg in regions:
+            pooler_url = f"postgresql://{pooler_user}:{password}@{reg}.pooler.supabase.com:6543/{dbname}"
+            if pooler_url not in prepared_urls:
+                prepared_urls.append(pooler_url)
+            
+        if url not in prepared_urls:
+            prepared_urls.append(url)
+    else:
+        prepared_urls.append(url)
+        
+    return prepared_urls
 
 
-def auto_convert_supabase_direct_to_pooler_urls(url_str):
-    import re
-    if not url_str:
-        return []
-    
-    m = re.search(r'postgresql://([^:]+):([^@]+)@db\.([a-zA-Z0-9]+)\.supabase\.(?:co|com)(?::\d+)?/(.+)', url_str)
-    if not m:
-        return []
-    
-    user = m.group(1)
-    password = m.group(2)
-    project_ref = m.group(3)
-    dbname = m.group(4)
-    
-    pooler_user = f"{user}.{project_ref}" if not user.endswith(f".{project_ref}") else user
-    
-    regions = [
-        "aws-0-us-east-1",
-        "aws-0-sa-east-1",
-        "aws-0-us-west-1",
-        "aws-0-eu-central-1",
-        "aws-0-ap-southeast-1"
-    ]
-    
-    candidate_urls = []
-    for reg in regions:
-        pooler_url = f"postgresql://{pooler_user}:{password}@{reg}.pooler.supabase.com:6543/{dbname}"
-        candidate_urls.append(pooler_url)
-        
-    return candidate_urls
+def sanitize_db_url(raw_url):
+    urls = sanitize_and_prepare_db_urls(raw_url)
+    return urls[0] if urls else ""
 
 
 class SmartDBConnection:
     def __init__(self, db_url=None):
+        global _GLOBAL_WORKING_DB_URL
         self.db_url = db_url
         self.is_postgres = False
         self.conn = None
         
-        url_to_use = sanitize_db_url(self.db_url)
+        url_to_use = None
+        
+        # 1. Check custom_db_url or working_db_url in session_state first
+        try:
+            if "custom_db_url" in st.session_state and st.session_state.custom_db_url:
+                url_to_use = st.session_state.custom_db_url
+            elif "working_db_url" in st.session_state and st.session_state.working_db_url:
+                url_to_use = st.session_state.working_db_url
+        except Exception:
+            pass
+            
+        # 2. Check global cached working URL
+        if not url_to_use and _GLOBAL_WORKING_DB_URL:
+            url_to_use = _GLOBAL_WORKING_DB_URL
+            
+        # 3. Check secrets / environment
         if not url_to_use:
             try:
                 if "DATABASE_URL" in st.secrets:
-                    url_to_use = sanitize_db_url(st.secrets["DATABASE_URL"])
+                    url_to_use = st.secrets["DATABASE_URL"]
                 elif "postgres" in st.secrets and "url" in st.secrets["postgres"]:
-                    url_to_use = sanitize_db_url(st.secrets["postgres"]["url"])
+                    url_to_use = st.secrets["postgres"]["url"]
             except Exception:
                 pass
         if not url_to_use:
             import os
-            url_to_use = sanitize_db_url(os.environ.get("DATABASE_URL"))
-            
-        if url_to_use and ("postgresql://" in url_to_use or "postgres://" in url_to_use):
-            urls_to_try = [url_to_use]
-            
-            # Automatically generate Supabase Pooler fallback candidates for IPv4 hosts like Streamlit Cloud
-            pooler_cands = auto_convert_supabase_direct_to_pooler_urls(url_to_use)
-            for c in pooler_cands:
-                if c not in urls_to_try:
-                    urls_to_try.append(c)
-                    
+            url_to_use = os.environ.get("DATABASE_URL")
+
+        prepared_urls = sanitize_and_prepare_db_urls(url_to_use)
+        
+        if prepared_urls:
             import psycopg2
             last_err = None
-            for attempt_url in urls_to_try:
+            for attempt_url in prepared_urls:
                 try:
-                    conn_attempt = psycopg2.connect(attempt_url, connect_timeout=8)
+                    conn_attempt = psycopg2.connect(attempt_url, connect_timeout=3)
                     self.conn = conn_attempt
                     self.is_postgres = True
                     self.db_url = attempt_url
-                    last_err = None
+                    _GLOBAL_WORKING_DB_URL = attempt_url
                     try:
                         import streamlit as st
-                        st.session_state["custom_db_url"] = attempt_url
+                        st.session_state["working_db_url"] = attempt_url
                         st.session_state["db_conn_error"] = None
+                        st.session_state["db_conn_url_used"] = attempt_url
                     except Exception:
                         pass
                     break
@@ -1053,7 +1067,7 @@ class SmartDBConnection:
                 try:
                     import streamlit as st
                     st.session_state["db_conn_error"] = str(last_err)
-                    st.session_state["db_attempted_url"] = url_to_use
+                    st.session_state["db_conn_url_used"] = url_to_use
                 except Exception:
                     pass
         else:
@@ -5828,7 +5842,7 @@ st.markdown(f"""
 
 if not st.session_state.logged_in:
     st.sidebar.title("🔐 Alianza CryptoWallet")
-    st.sidebar.markdown("<div style='background-color: #1e293b; padding: 6px 12px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 15px; text-align: center;'><span style='color: #ffd700; font-size: 0.85rem; font-weight: bold;'>🚀 Versión de la App: v89</span></div>", unsafe_allow_html=True)
+    st.sidebar.markdown("<div style='background-color: #1e293b; padding: 6px 12px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 15px; text-align: center;'><span style='color: #ffd700; font-size: 0.85rem; font-weight: bold;'>🚀 Versión de la App: v90</span></div>", unsafe_allow_html=True)
     menu = st.sidebar.selectbox("Seleccione una opción", ["Iniciar Sesión", "Registrarse"])
     
     if menu == "Iniciar Sesión":
@@ -5896,7 +5910,7 @@ if not st.session_state.logged_in:
 else:
     # Sidebar de usuario conectado con toques dorados
     st.sidebar.markdown(f"<h2 class='golden-title'>👋 {st.session_state.fullname}</h2>", unsafe_allow_html=True)
-    st.sidebar.markdown("<div style='background-color: #1e293b; padding: 6px 12px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 15px; text-align: center;'><span style='color: #ffd700; font-size: 0.85rem; font-weight: bold;'>🚀 Versión de la App: v89</span></div>", unsafe_allow_html=True)
+    st.sidebar.markdown("<div style='background-color: #1e293b; padding: 6px 12px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 15px; text-align: center;'><span style='color: #ffd700; font-size: 0.85rem; font-weight: bold;'>🚀 Versión de la App: v90</span></div>", unsafe_allow_html=True)
     st.sidebar.markdown(f"**Billetera ID (Código):** `{st.session_state.wallet_code}`")
     
     # Obtener el número de notificaciones pendientes
