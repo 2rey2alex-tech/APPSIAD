@@ -31,7 +31,7 @@ def clean_html(html_str):
 
 # Configuración de página de Streamlit
 st.set_page_config(
-    page_title="Alianza CryptoWallet v74",
+    page_title="Alianza CryptoWallet v92",
     page_icon="💼",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -3602,7 +3602,7 @@ def check_and_run_weekly_distribution():
 @st.cache_data(ttl=120)
 def fetch_btc_price():
     try:
-        response = requests.get("https://api.coinbase.com/v2/prices/BTC-USD/spot", timeout=2)
+        response = requests.get("https://api.coinbase.com/v2/prices/BTC-USD/spot", timeout=1)
         if response.status_code == 200:
             data = response.json()
             return float(data['data']['amount'])
@@ -3615,7 +3615,7 @@ def fetch_sd_price_from_dexscreener():
     # 1. Intentar con DexScreener
     try:
         url = "https://api.dexscreener.com/latest/dex/tokens/0xC324649213ec1757190bc4b78bcD41Cc1545C264"
-        response = requests.get(url, timeout=3)
+        response = requests.get(url, timeout=1.5)
         if response.status_code == 200:
             data = response.json()
             if data and 'pairs' in data and data['pairs'] is not None and len(data['pairs']) > 0:
@@ -3685,7 +3685,7 @@ def fetch_native_balance_rpc(wallet_address, rpc_url="https://bsc-dataseed.binan
 @st.cache_data(ttl=120)
 def fetch_usd_cop_rate():
     try:
-        response = requests.get("https://economia.awesomeapi.com.br/json/last/USD-COP", timeout=2)
+        response = requests.get("https://economia.awesomeapi.com.br/json/last/USD-COP", timeout=1)
         if response.status_code == 200:
             data = response.json()
             return float(data['USDCOP']['bid'])
@@ -5842,7 +5842,8 @@ st.markdown(f"""
 
 
 if not st.session_state.logged_in:
-    st.sidebar.title("🔐 Alianza CryptoWallet")
+    st.sidebar.markdown("<h2 class='golden-title'>🔐 Alianza CryptoWallet v92</h2>", unsafe_allow_html=True)
+    st.sidebar.caption("🚀 Versión de la App: **v92 (Ultra-Rápida / Nube)**")
     st.sidebar.markdown("<div style='background-color: #1e293b; padding: 6px 12px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 15px; text-align: center;'><span style='color: #ffd700; font-size: 0.85rem; font-weight: bold;'>🚀 Versión de la App: v90</span></div>", unsafe_allow_html=True)
     menu = st.sidebar.selectbox("Seleccione una opción", ["Iniciar Sesión", "Registrarse"])
     
@@ -9866,7 +9867,7 @@ else:
 
     # --- PANEL DEL PROPIETARIO ---
     elif choice == "👑 Panel del Propietario":
-        st.markdown("<h1 class='golden-title'>👑 Consola del Propietario de la App</h1>", unsafe_allow_html=True)
+        st.markdown("<h1 class='golden-title'>👑 Consola del Propietario de la App (v92)</h1>", unsafe_allow_html=True)
         
         # Consola de edición expresa ultra-llamativa
         st.markdown("""
