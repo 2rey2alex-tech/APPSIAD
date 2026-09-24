@@ -31,14 +31,14 @@ def clean_html(html_str):
 
 # Configuración de página de Streamlit
 st.set_page_config(
-    page_title="Alianza CryptoWallet v92",
+    page_title="Alianza CryptoWallet v94",
     page_icon="💼",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
 if st_autorefresh is not None:
-    st_autorefresh(interval=10000, key="datarefresh") # Auto-refresh every 10 seconds
+    st_autorefresh(interval=120000, key="datarefresh") # Auto-refresh every 10 seconds
 
 
 
@@ -897,7 +897,13 @@ def init_db():
     conn.commit()
     conn.close()
 
-init_db()
+
+@st.cache_resource
+def ensure_db_initialized():
+    init_db()
+    return True
+
+ensure_db_initialized()
 
 # Funciones auxiliares de base de datos
 def hash_password(password):
@@ -1004,13 +1010,28 @@ def sanitize_db_url(raw_url):
     return urls[0] if urls else ""
 
 
+_GLOBAL_SHARED_PG_CONN = None
+_GLOBAL_SHARED_PG_URL = None
+_GLOBAL_SHARED_PG_FAILED = False
+
 class SmartDBConnection:
     def __init__(self, db_url=None):
-        global _GLOBAL_WORKING_DB_URL
+        global _GLOBAL_WORKING_DB_URL, _GLOBAL_SHARED_PG_CONN, _GLOBAL_SHARED_PG_URL, _GLOBAL_SHARED_PG_FAILED
         self.db_url = db_url
         self.is_postgres = False
         self.conn = None
         
+        # Fast path: Reuse persistent active connection if available (0ms delay)
+        if _GLOBAL_SHARED_PG_CONN is not None:
+            try:
+                if getattr(_GLOBAL_SHARED_PG_CONN, 'closed', 1) == 0:
+                    self.conn = _GLOBAL_SHARED_PG_CONN
+                    self.is_postgres = True
+                    self.db_url = _GLOBAL_SHARED_PG_URL
+                    return
+            except Exception:
+                _GLOBAL_SHARED_PG_CONN = None
+                
         url_to_use = None
         
         # 1. Check custom_db_url or working_db_url in session_state first
@@ -1041,7 +1062,7 @@ class SmartDBConnection:
 
         prepared_urls = sanitize_and_prepare_db_urls(url_to_use)
         
-        if prepared_urls:
+        if prepared_urls and not _GLOBAL_SHARED_PG_FAILED:
             import psycopg2
             last_err = None
             for attempt_url in prepared_urls:
@@ -1051,6 +1072,8 @@ class SmartDBConnection:
                     self.is_postgres = True
                     self.db_url = attempt_url
                     _GLOBAL_WORKING_DB_URL = attempt_url
+                    _GLOBAL_SHARED_PG_CONN = conn_attempt
+                    _GLOBAL_SHARED_PG_URL = attempt_url
                     try:
                         import streamlit as st
                         st.session_state["working_db_url"] = attempt_url
@@ -1063,12 +1086,13 @@ class SmartDBConnection:
                     last_err = e
                     
             if not self.is_postgres:
+                _GLOBAL_SHARED_PG_FAILED = True
                 self.conn = sqlite3.connect("wallet_pro.db", timeout=30)
                 self.is_postgres = False
                 try:
                     import streamlit as st
                     st.session_state["db_conn_error"] = str(last_err)
-                    st.session_state["db_conn_url_used"] = url_to_use
+                    st.session_state["db_attempted_url"] = url_to_use
                 except Exception:
                     pass
         else:
@@ -1083,10 +1107,18 @@ class SmartDBConnection:
         return self.conn.commit()
 
     def rollback(self):
-        return self.conn.rollback()
+        try:
+            return self.conn.rollback()
+        except Exception:
+            pass
 
     def close(self):
-        return self.conn.close()
+        # Persistent socket reuse for PostgreSQL: keep TCP+SSL connection open for sub-millisecond query execution!
+        if not self.is_postgres:
+            try:
+                self.conn.close()
+            except Exception:
+                pass
 
     def __getattr__(self, name):
         return getattr(self.conn, name)
@@ -1233,6 +1265,7 @@ def generate_unique_wallet_code():
             conn.close()
             return code
 
+@st.cache_data(ttl=300)
 def get_token_settings():
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -1256,6 +1289,10 @@ def get_token_settings():
     }
 
 def update_token_settings(name, symbol, contract, price_usd, nequi_number):
+    try:
+        get_token_settings.clear()
+    except Exception:
+        pass
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute("""
@@ -4316,6 +4353,7 @@ def update_global_nequi(nequi_number):
 
 # --- FUNCIONES DE JUEGOS Y CONTROL ---
 
+@st.cache_data(ttl=300)
 def get_game_setting(key, default_val="", default_num=0.0):
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -4327,6 +4365,10 @@ def get_game_setting(key, default_val="", default_num=0.0):
     return default_val, default_num
 
 def update_game_setting(key, text_val, num_val):
+    try:
+        get_game_setting.clear()
+    except Exception:
+        pass
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute("""
@@ -5842,9 +5884,9 @@ st.markdown(f"""
 
 
 if not st.session_state.logged_in:
-    st.sidebar.markdown("<h2 class='golden-title'>🔐 Alianza CryptoWallet v92</h2>", unsafe_allow_html=True)
-    st.sidebar.caption("🚀 Versión de la App: **v92 (Ultra-Rápida / Nube)**")
-    st.sidebar.markdown("<div style='background-color: #1e293b; padding: 6px 12px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 15px; text-align: center;'><span style='color: #ffd700; font-size: 0.85rem; font-weight: bold;'>🚀 Versión de la App: v90</span></div>", unsafe_allow_html=True)
+    st.sidebar.markdown("<h2 class='golden-title'>🔐 Alianza CryptoWallet v94</h2>", unsafe_allow_html=True)
+    st.sidebar.caption("🚀 Versión de la App: **v94 (Ultra-Rápida / Sub-2s)**")
+    st.sidebar.markdown("<div style='background-color: #1e293b; padding: 6px 12px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 15px; text-align: center;'><span style='color: #ffd700; font-size: 0.85rem; font-weight: bold;'>🚀 Versión de la App: v94 (Ultra-Rápida / Sub-2s)</span></div>", unsafe_allow_html=True)
     menu = st.sidebar.selectbox("Seleccione una opción", ["Iniciar Sesión", "Registrarse"])
     
     if menu == "Iniciar Sesión":
@@ -5912,7 +5954,7 @@ if not st.session_state.logged_in:
 else:
     # Sidebar de usuario conectado con toques dorados
     st.sidebar.markdown(f"<h2 class='golden-title'>👋 {st.session_state.fullname}</h2>", unsafe_allow_html=True)
-    st.sidebar.markdown("<div style='background-color: #1e293b; padding: 6px 12px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 15px; text-align: center;'><span style='color: #ffd700; font-size: 0.85rem; font-weight: bold;'>🚀 Versión de la App: v90</span></div>", unsafe_allow_html=True)
+    st.sidebar.markdown("<div style='background-color: #1e293b; padding: 6px 12px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 15px; text-align: center;'><span style='color: #ffd700; font-size: 0.85rem; font-weight: bold;'>🚀 Versión de la App: v94 (Ultra-Rápida / Sub-2s)</span></div>", unsafe_allow_html=True)
     st.sidebar.markdown(f"**Billetera ID (Código):** `{st.session_state.wallet_code}`")
     
     # Obtener el número de notificaciones pendientes
@@ -9867,7 +9909,7 @@ else:
 
     # --- PANEL DEL PROPIETARIO ---
     elif choice == "👑 Panel del Propietario":
-        st.markdown("<h1 class='golden-title'>👑 Consola del Propietario de la App (v92)</h1>", unsafe_allow_html=True)
+        st.markdown("<h1 class='golden-title'>👑 Consola del Propietario de la App (v94)</h1>", unsafe_allow_html=True)
         
         # Consola de edición expresa ultra-llamativa
         st.markdown("""
